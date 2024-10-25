@@ -1,23 +1,22 @@
-# game_ai.py
+##################################################
+# GAME_AI
+##################################################
 
 from game import Game, GameAgent
 from constants import *
+from utils import *
 
 class GameAI(Game):
     """AI-controlled version of the Game."""
 
+    def __init__(self):
+        """Initialize the GameAI."""
+        super().__init__()
+        self.prev_action = None # To store the previous action
+
     def reset(self):
         """Reset the game state and action reward trackers."""
         super().reset()
-        # Initialize incremental action bonuses
-        self.inc_closer_bonus = 0.0
-        self.inc_away_bonus = 0.0
-        self.inc_frame_bonus = 0.0
-        self.inc_miss_bonus = 0.0
-        # Outcome bonus
-        self.outcome_bonus = 0.0
-        # Track distance to enemy
-        self.prev_distance_to_enemy = self.player.pos.distance_to(self.enemy.pos)
         # Flag for shooting
         self.player_shot = False
 
@@ -25,8 +24,8 @@ class GameAI(Game):
         """Execute one game step based on the action taken."""
         self.frame_count += 1
 
-        # Compute distance to enemy before action
-        distance_before = self.player.pos.distance_to(self.enemy.pos)
+        # Initialize bonuses list
+        bonuses = []
 
         # Parse action
         move_up = move_down = move_left = move_right = rotate_left = rotate_right = shoot = False
@@ -54,97 +53,72 @@ class GameAI(Game):
         elif action_index == ACTION_WAIT:
             pass  # Do nothing
 
+        # Get player's movement vector
+        player_movement = get_player_movement_vector(action_index)
+
         # Move player
         self._move_agent(self.player, move_up, move_down, move_left, move_right, rotate_left, rotate_right)
-
-        # Compute distance to enemy after action
-        distance_after = self.player.pos.distance_to(self.enemy.pos)
-        delta_distance = distance_before - distance_after
 
         # Initialize reward for this step
         reward = 0.0
 
-        # Moving closer to enemy
-        if delta_distance > 0:
-            if self.inc_closer_bonus < 5:
-                incremental_bonus = 0.01 #min(0.01, 5 - self.inc_closer_bonus)
-                reward += incremental_bonus
-                self.inc_closer_bonus += incremental_bonus
-        # Moving away from enemy
-        elif delta_distance < 0:
-            if self.inc_away_bonus > -5:
-                incremental_bonus = -0.01 #max(-0.01, -5 - self.inc_away_bonus)
-                reward += incremental_bonus  # Negative bonus
-                self.inc_away_bonus += incremental_bonus
+        # Same Action Bonus (excluding shooting)
+        if self.prev_action is not None and action_index != ACTION_SHOOT and self.prev_action != ACTION_SHOOT:
+            same_action_bonus = 0.001 if action_index == self.prev_action else 0.000
+        else:
+            same_action_bonus = 0.000
+        reward += same_action_bonus
+        bonuses.append(same_action_bonus)
+        self.prev_action = action_index
 
-        # Update previous distance
-        self.prev_distance_to_enemy = distance_after
+        # Proximity Bonus
+        proximity_bonus = self.get_proximity_bonus(bonus=0.010)
+        reward += proximity_bonus
+        bonuses.append(proximity_bonus)
 
-        # Default frame penalty (negative bonus)
-        #if self.inc_frame_bonus > -5:
-        #    incremental_bonus = max(-0.005, -5 - self.inc_frame_bonus)
-        #    reward += incremental_bonus
-        #    self.inc_frame_bonus += incremental_bonus
+        # Dodge and Cover Bonus
+        dodge_bonus, cover_bonus = self.get_dodge_and_cover_bonus(player_movement, bonus=0.010)
+        reward += dodge_bonus
+        bonuses.append(dodge_bonus)
+        reward += cover_bonus
+        bonuses.append(cover_bonus)
 
         # Handle shooting
         if shoot:
             self.player_shot = True
             self._agent_shoot(self.player)
 
-        # Update projectiles
-        self._handle_projectiles()
-
-        # Decrement cooldowns
-        self._decrement_cooldowns()
-
-        # Handle enemy actions
-        self._enemy_actions()
-
-        # Update UI
-        self.ui.update_ui()
-
-        # Adjust the clock tick
-        if SHOW_GAME:
-            self.clock.tick(FPS)
+            shoot_alignment_bonus = self.get_shooting_alignment_bonus(bonus=0.010)
+            reward += shoot_alignment_bonus
+            bonuses.append(shoot_alignment_bonus)
         else:
-            # Run as fast as possible when not showing the game
-            self.clock.tick(0)
+            bonuses.append(0) # No shoot alignment bonus
 
-        # Check for missed shots
-        if self.player_shot:
-            # For now, set the shoot bonus to 0
-            # Keep the code for future use
-            # Example of applying a penalty for missed shots:
-            # if self.inc_miss_bonus > -5:
-            #     incremental_bonus = max(-0.01, -5 - self.inc_miss_bonus)
-            #     reward += incremental_bonus
-            #     self.inc_miss_bonus += incremental_bonus
-            pass
-        # Reset shot flag
+        # Update projectiles and game state
+        self._handle_projectiles()
+        self._decrement_cooldowns()
+        self._enemy_actions()
+        self.ui.update_ui()
+        self.clock.tick(FPS if SHOW_GAME else 0)
         self.player_shot = False
 
         # Check for game over conditions
         game_over = False
-
-        # If the enemy is eliminated, give a positive reward
+        outcome_bonus = 0.0
         if not self.enemy.alive:
-            reward += 10  # Win bonus
-            self.outcome_bonus += 10
+            outcome_bonus = 10.0
+            reward += outcome_bonus
+            if self.frame_count <= QUICK_WIN_THRESHOLD:
+                reward += 5
             game_over = True
-            return reward, game_over
-
-        # If the player is eliminated, give a negative reward
         elif not self.player.alive:
-            reward += -5  # Elimination penalty (negative bonus)
-            self.outcome_bonus += -5
+            outcome_bonus = -5.0
+            reward += outcome_bonus
             game_over = True
-            return reward, game_over
-
-        # Penalty for exceeding max match duration
         elif self.frame_count >= MAX_MATCH_DURATION:
-            reward += -5  # Timeout penalty (negative bonus)
-            self.outcome_bonus += -5
+            outcome_bonus = -5.0
+            reward += outcome_bonus
             game_over = True
-            return reward, game_over
+        bonuses.append(outcome_bonus)
 
-        return reward, game_over
+        return reward, game_over, bonuses

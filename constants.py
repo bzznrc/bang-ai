@@ -1,4 +1,6 @@
-# constants.py
+##################################################
+# CONSTANTS
+##################################################
 
 # Screen and Grid Dimensions
 GRID_SIZE_X = 32          # Number of tiles horizontally
@@ -11,7 +13,7 @@ SCREEN_HEIGHT = GRID_SIZE_Y * BLOCK_SIZE + BB_HEIGHT
 
 # Game Speed
 FPS = 60                  # Frames per second for the game
-AI_FPS = 180               # Frames per second for the AI game (if applicable)
+AI_FPS = 120               # Frames per second for the AI game (if applicable)
 
 # Colors
 COLOR_LEFT_TEAM = (30, 100, 100)         # Dark Teal for left team (player)
@@ -43,7 +45,7 @@ SAFE_RADIUS = 100  # Minimum distance from players in pixels
 FONT_SIZE = 24             # Font size for text displays
 
 # Model Constants
-MODEL_SAVE_PREFIX = 'bang_32_16_top'     # Prefix tag for saving models
+MODEL_SAVE_PREFIX = 'bang_256_128_64_32'     # Prefix tag for saving models
 LOAD_PREVIOUS_MODEL = True     # Start training from a saved model if True
 
 # Toggle for training plots
@@ -51,23 +53,27 @@ PLOT_TRAIN = False
 
 USE_GPU = False
 
-SHOW_GAME = True  # Set to True to display the game window during training
+SHOW_GAME = False  # Set to True to display the game window during training
 
 # Agent Hyperparameters
 MAX_MEMORY = 100_000    # Maximum size of the replay memory
-BATCH_SIZE = 1000       # Number of samples per training batch
-LR = 0.002              # Learning rate for the optimizer
-#HIDDEN_LAYERS = [32]    # List defining the size of hidden layers
-HIDDEN_LAYERS = [32, 16]
+BATCH_SIZE = 256        # Number of samples per training batch
+LR = 0.001              # Learning rate for the optimizer
 #HIDDEN_LAYERS = [64, 32, 16]
-GAMMA = 0.9              # Discount factor for future rewards
+#HIDDEN_LAYERS = [128, 64, 32]
+#HIDDEN_LAYERS = [256, 128, 64] #-5.20 / Game 860
+HIDDEN_LAYERS = [256, 128, 64, 32]
+
+GAMMA = 0.95            # Discount factor for future rewards
+
+L2_LAMBDA = 0.001       # Weight Decay
 
 # Epsilon Parameters for Exploration
-EPSILON_START = 1.0         # Initial exploration rate
-EPSILON_DECAY = 0.999995    # Decay rate for exploration
-EPSILON_MIN = 0.01          # Minimum exploration rate
+EPSILON_START = 1         # Initial exploration rate
+EPSILON_DECAY = 0.99995    # Decay rate for exploration
+EPSILON_MIN = 0.05          # Minimum exploration rate
 
-MAX_MATCH_DURATION = 2000   # Maximum number of frames per match
+MAX_MATCH_DURATION = 1000   # Maximum number of frames per match
 
 # Action Space Indices
 ACTION_MOVE_UP = 0
@@ -82,7 +88,12 @@ ACTION_WAIT = 7
 NUM_ACTIONS = 8  # Total number of actions
 
 # Number of inputs
-NUM_INPUTS = 10  # Total number of inputs
+NUM_INPUTS = 12  # Updated total number of inputs
 
 ENEMY_SHOOT_COOLDOWN = 180  # Enemy shoots every 3 seconds at 60 FPS
 ENEMY_MOVE_PROBABILITY = 0.05  # Adjust as needed (e.g., 0.05 means 5% chance to move each frame)
+
+# Engagement Constants
+ENGAGEMENT_RADIUS = 360    # Radius within which the player should stay close to the enemy
+ALIGNMENT_ANGLE = 30       # Angle threshold for aligned shooting
+QUICK_WIN_THRESHOLD = MAX_MATCH_DURATION / 2  # Frame threshold for quick win bonus

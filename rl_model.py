@@ -1,3 +1,7 @@
+##################################################
+# RL_MODEL
+##################################################
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -52,11 +56,11 @@ class LinearQNet(nn.Module):
 class QTrainer:
     """Trainer class for the Q-learning model."""
 
-    def __init__(self, model, lr, gamma):
+    def __init__(self, model, lr, gamma, l2_lambda):
         self.model = model
         self.lr = lr
         self.gamma = gamma
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=l2_lambda)
         self.criterion = nn.MSELoss()
 
     def train_step(self, state, action, reward, next_state, done):
