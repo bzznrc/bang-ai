@@ -4,23 +4,21 @@ Bang AI - Reinforcement Learning TPS (Third Person Shooter)
 **This is currently under development.**
 
 ### Inputs (10 Total):
-- Delta X to Enemy
-- Delta Y to Enemy
-- Delta X to Obstacle
-- Delta Y to Obstacle
-- Delta X to Projectile
-- Delta Y to Projectile
+- Distance to Enemy
+- Angle to Enemy
 - Player Angle
-- Cooldown Status
-- Delta X to Center of Map
-- Delta Y to Center of Map
+- Distance to Center
+- Cover (1/0)
+- Angle to Cover
+- In Projectile Trajectory (1/0)
+- Distance to Projectile
+- Line of Sight (1/0)
+- Cooldown Status (1/0)
 
-### Outputs (8 Total):
-- Move Up
-- Move Down
-- Move Left
-- Move Right
-- Rotate Left
-- Rotate Right
+### Outputs (6 Total):
+- Move Forward
+- Move Backward
+- Turn Left
+- Turn Right
 - Shoot
 - Wait
