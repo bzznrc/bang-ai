@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from pathlib import Path
-from constants import USE_GPU
+from constants import *
 from utils import get_device
 
 device = get_device()
@@ -24,6 +24,8 @@ class LinearQNet(nn.Module):
         for hidden_size in hidden_layers:
             layers.append(nn.Linear(in_size, hidden_size))
             layers.append(nn.ReLU())
+            if DROPOUT_RATE != 0:
+                layers.append(nn.Dropout(DROPOUT_RATE))  # Adding dropout layer
             in_size = hidden_size
 
         # Output layer
@@ -56,11 +58,11 @@ class LinearQNet(nn.Module):
 class QTrainer:
     """Trainer class for the Q-learning model."""
 
-    def __init__(self, model, lr, gamma, l2_lambda):
+    def __init__(self, model):
         self.model = model
-        self.lr = lr
-        self.gamma = gamma
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=l2_lambda)
+        self.lr = LR
+        self.gamma = GAMMA
+        self.optimizer = optim.Adam(self.model.parameters(), lr=LR, weight_decay=L2_LAMBDA)
         self.criterion = nn.MSELoss()
 
     def train_step(self, state, action, reward, next_state, done):
@@ -68,7 +70,7 @@ class QTrainer:
         # Convert to tensors and move to device
         state = torch.tensor(np.array(state), dtype=torch.float).to(device)
         next_state = torch.tensor(np.array(next_state), dtype=torch.float).to(device)
-        action = torch.tensor(np.array(action), dtype=torch.long).to(device)  # Changed to torch.long
+        action = torch.tensor(np.array(action), dtype=torch.long).to(device)
         reward = torch.tensor(np.array(reward), dtype=torch.float).to(device)
         done = torch.tensor(np.array(done), dtype=torch.bool).to(device)
 

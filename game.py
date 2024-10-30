@@ -45,16 +45,24 @@ class Game:
         self.p1_score = 0
         self.p2_score = 0
 
+        # Initialize previous action
+        self.prev_action = None
+
         self.reset()
 
     def reset(self):
         """Reset the game state."""
-        # Initialize player
-        player_pos = pygame.Vector2(self.w / 8, self.h / 2 - BB_HEIGHT // 2)
+
+        # Calculate random Y-offset for player and enemy
+        player_y_offset = random.choice([0, SPAWN_Y_OFFSET, -SPAWN_Y_OFFSET])
+        enemy_y_offset = random.choice([0, SPAWN_Y_OFFSET, -SPAWN_Y_OFFSET])
+
+        # Initialize player with variable Y position
+        player_pos = pygame.Vector2(self.w / 8, (self.h / 2 - BB_HEIGHT // 2) + player_y_offset)
         self.player = GameAgent(player_pos, angle=0, agent_type='player')  # Facing right
 
-        # Initialize enemy
-        enemy_pos = pygame.Vector2(7 * self.w / 8, self.h / 2 - BB_HEIGHT // 2)
+        # Initialize player with variable Y position
+        enemy_pos = pygame.Vector2(7 * self.w / 8, (self.h / 2 - BB_HEIGHT // 2) + enemy_y_offset)
         self.enemy = GameAgent(enemy_pos, angle=180, agent_type='enemy')  # Facing left
 
         self.obstacles = []
@@ -66,7 +74,36 @@ class Game:
         # Initialize enemy behavior
         self.enemy_behavior_counter = 0
         self.enemy_move_phase = 0
-        self.enemy_move_direction = None
+        self.enemy_move_action = None  # Initialize move action
+        self.enemy_alignment_choice = None  # For alignment phase
+        self.enemy_target_angle = None  # For alignment phase
+
+    def apply_action(self, action_index):
+        """
+        Apply the given action to the player.
+        Sets movement and rotation flags, moves the player, and handles shooting.
+        """
+        move_forward = move_backward = rotate_left = rotate_right = shoot = False
+
+        if action_index == ACTION_MOVE_FORWARD:
+            move_forward = True
+        elif action_index == ACTION_MOVE_BACKWARD:
+            move_backward = True
+        elif action_index == ACTION_TURN_LEFT:
+            rotate_left = True
+        elif action_index == ACTION_TURN_RIGHT:
+            rotate_right = True
+        elif action_index == ACTION_SHOOT:
+            shoot = True
+        elif action_index == ACTION_WAIT:
+            pass  # Do nothing
+
+        # Move player
+        self._move_agent(self.player, move_forward, move_backward, rotate_left, rotate_right)
+
+        # Handle shooting
+        if shoot:
+            self._agent_shoot(self.player)
 
     def _place_obstacles(self):
         """Place multiple obstacles (sections) in random locations."""
@@ -123,7 +160,7 @@ class Game:
 
             self.obstacles.extend(shape)
 
-    def _move_agent(self, agent, move_up, move_down, move_left, move_right, rotate_left, rotate_right):
+    def _move_agent(self, agent, move_forward, move_backward, rotate_left, rotate_right):
         """Update an agent's position and angle based on input."""
         # Rotation
         if rotate_left:
@@ -131,16 +168,18 @@ class Game:
         if rotate_right:
             agent.angle = (agent.angle - ROTATION_SPEED) % 360
 
-        # Movement along the board axes
+        # Movement in the direction the agent is facing
         movement = pygame.Vector2(0, 0)
-        if move_up:
-            movement += pygame.Vector2(0, -PLAYER_SPEED)  # Move up along y-axis
-        if move_down:
-            movement += pygame.Vector2(0, PLAYER_SPEED)   # Move down along y-axis
-        if move_left:
-            movement += pygame.Vector2(-PLAYER_SPEED, 0)  # Move left along x-axis
-        if move_right:
-            movement += pygame.Vector2(PLAYER_SPEED, 0)   # Move right along x-axis
+        if move_forward:
+            movement += pygame.Vector2(
+                math.cos(math.radians(agent.angle)),
+                math.sin(math.radians(agent.angle))
+            ) * PLAYER_SPEED
+        if move_backward:
+            movement -= pygame.Vector2(
+                math.cos(math.radians(agent.angle)),
+                math.sin(math.radians(agent.angle))
+            ) * PLAYER_SPEED
 
         new_position = agent.pos + movement
 
@@ -198,10 +237,6 @@ class Game:
                     BLOCK_SIZE
                 )
                 if proj_rect.colliderect(agent_rect):
-                    if proj['owner'] == 'player':
-                        self.p1_score += 1  # Increment P1 score
-                    else:
-                        self.p2_score += 1  # Increment P2 score
                     target_agent.alive = False  # Agent is eliminated
                     continue  # Projectile is destroyed upon hitting the agent
             new_projectiles.append(proj)
@@ -211,28 +246,34 @@ class Game:
         """Handle enemy movement during movement phases."""
         if self.enemy_behavior_counter == 1:
             if self.enemy_move_phase == 0:
-                # Choose a random initial direction
-                self.enemy_move_direction = random.choice(['up', 'down', 'left', 'right'])
+                # Choose a random initial action
+                self.enemy_move_action = random.choice(['move_forward', 'move_backward', 'rotate_left', 'rotate_right'])
             elif self.enemy_move_phase == 1:
-                # Choose a perpendicular direction
-                if self.enemy_move_direction in ['up', 'down']:
-                    self.enemy_move_direction = random.choice(['left', 'right'])
-                else:
-                    self.enemy_move_direction = random.choice(['up', 'down'])
+                # Choose a different action
+                possible_actions = ['move_forward', 'move_backward', 'rotate_left', 'rotate_right']
+                possible_actions.remove(self.enemy_move_action)  # Ensure it's different
+                self.enemy_move_action = random.choice(possible_actions)
 
-        # Set movement flags based on direction
-        move_up, move_down, move_left, move_right = set_movement_flags(self.enemy_move_direction)
-        rotate_left = rotate_right = False
+        # Set movement flags based on action
+        move_forward = move_backward = rotate_left = rotate_right = False
+        if self.enemy_move_action == 'move_forward':
+            move_forward = True
+        elif self.enemy_move_action == 'move_backward':
+            move_backward = True
+        elif self.enemy_move_action == 'rotate_left':
+            rotate_left = True
+        elif self.enemy_move_action == 'rotate_right':
+            rotate_right = True
 
         # Move enemy
-        self._move_agent(self.enemy, move_up, move_down, move_left, move_right, rotate_left, rotate_right)
+        self._move_agent(self.enemy, move_forward, move_backward, rotate_left, rotate_right)
 
         if self.enemy_behavior_counter >= phase_duration:
             self.enemy_behavior_counter = 0
             self.enemy_move_phase += 1
 
     def _enemy_actions(self):
-        """Handle enemy actions based on the simplified behavior."""
+        """Handle enemy actions based on movement phases."""
         if self.enemy.alive:
             self.enemy_behavior_counter += 1
 
@@ -240,37 +281,59 @@ class Game:
                 # Movement phases
                 self._enemy_movement_phase(25)
             elif self.enemy_move_phase == 2:
-                # Align and shoot phase
-                aligned = self._enemy_align_to_player()
+                # Alignment and shooting phase
+                if self.enemy_behavior_counter == 1:
+                    # First frame of alignment phase
+                    self._enemy_decide_alignment()
+
+                # Now align towards the target angle
+                aligned = self._enemy_align_to_target()
                 if aligned:
                     if self.enemy.cooldown == 0:
                         self._agent_shoot(self.enemy)
                         # Reset behavior after shooting
                         self.enemy_behavior_counter = 0
                         self.enemy_move_phase = 0
-                        self.enemy_move_direction = None  # Reset movement direction
+                        self.enemy_move_action = None  # Reset movement action
+                        self.enemy_alignment_choice = None  # Reset alignment choice
+                        self.enemy_target_angle = None  # Reset target angle
                     else:
                         # Wait for cooldown to expire
                         self.enemy.cooldown -= 1
 
-    def _enemy_align_to_player(self):
-        """Align the enemy's angle to face the player. Returns True if aligned."""
+    def _enemy_decide_alignment(self):
+        """Decide the alignment choice and calculate the target angle once per alignment phase."""
+        # Randomness in alignment
+        self.enemy_alignment_choice = random.choice(['undershoot', 'overshoot', 'exact'])
+        
         # Calculate the angle from enemy to player
         vector_to_player = self.player.pos - self.enemy.pos
-        angle_to_player = math.degrees(math.atan2(vector_to_player.y, vector_to_player.x))
+        angle_to_player = math.degrees(math.atan2(vector_to_player.y, vector_to_player.x)) % 360
+
+        if self.enemy_alignment_choice == 'undershoot':
+            # Rotate towards the player but stop ROTATION_SPEED degrees before alignment
+            self.enemy_target_angle = (angle_to_player - ROTATION_SPEED) % 360
+        elif self.enemy_alignment_choice == 'overshoot':
+            # Rotate towards the player but rotate ROTATION_SPEED degrees past alignment
+            self.enemy_target_angle = (angle_to_player + ROTATION_SPEED) % 360
+        else:
+            # Align exactly
+            self.enemy_target_angle = angle_to_player % 360
+
+    def _enemy_align_to_target(self):
+        """Align the enemy's angle to the stored target angle. Returns True if aligned."""
+        if self.enemy_target_angle is None:
+            return False  # No target angle set
 
         # Normalize angles to be within [0, 360)
         enemy_angle = self.enemy.angle % 360
-        angle_to_player = angle_to_player % 360
-
-        # Calculate the minimal signed angle difference between current angle and target angle
-        angle_diff = (angle_to_player - enemy_angle + 180) % 360 - 180  # Result is in [-180, 180]
+        angle_diff = (self.enemy_target_angle - enemy_angle + 180) % 360 - 180  # Result is in [-180, 180]
 
         # Determine rotation direction
         if abs(angle_diff) <= ROTATION_SPEED:
             # Can align in one step
-            self.enemy.angle = angle_to_player  # Align exactly
-            return True  # Aligned
+            self.enemy.angle = self.enemy_target_angle  # Align to target angle
+            return True  # Aligned (or close enough)
         else:
             # Need to rotate
             if angle_diff > 0:
@@ -283,9 +346,43 @@ class Game:
                 rotate_right = True  # Rotating right decreases the angle
 
             # Rotate enemy
-            self._move_agent(self.enemy, False, False, False, False, rotate_left, rotate_right)
+            self._move_agent(self.enemy, False, False, rotate_left, rotate_right)
             return False  # Not yet aligned
 
+    def _get_closest_projectile(self):
+        """Return the closest enemy projectile."""
+        projectiles = [proj for proj in self.projectiles if proj['owner'] == 'enemy']
+        if not projectiles:
+            return None
+        player_pos = self.player.pos
+        closest_proj = min(projectiles, key=lambda proj: player_pos.distance_to(proj['pos']))
+        return closest_proj
+    
+    def _is_in_projectile_trajectory(self):
+        """Check if the player is in the direct trajectory of any enemy projectile."""
+        for proj in self.projectiles:
+            if proj['owner'] == 'enemy':
+                # Projectile's current position and velocity
+                proj_pos = proj['pos']
+                proj_vel = proj['velocity']
+
+                # Vector from projectile to player
+                vector_to_player = self.player.pos - proj_pos
+
+                # Normalize vectors
+                proj_direction = proj_vel.normalize()
+                vector_to_player_norm = vector_to_player.normalize()
+
+                # Angle between projectile's direction and vector to player
+                angle_between = proj_direction.angle_to(vector_to_player_norm)
+
+                # If the angle is small, the player is in the trajectory
+                if abs(angle_between) < 5:  # Threshold angle in degrees
+                    # Check if the projectile is moving towards the player
+                    if proj_direction.dot(vector_to_player_norm) > 0:
+                        return True
+        return False
+    
     def _get_closest_obstacle(self):
         """Return the position of the closest obstacle."""
         if not self.obstacles:
@@ -294,168 +391,88 @@ class Game:
         closest_obstacle = min(self.obstacles, key=lambda obs: player_pos.distance_to(obs))
         return closest_obstacle
 
-    def _get_closest_projectile(self):
-        """Return the position of the closest incoming projectile."""
-        projectiles = [proj for proj in self.projectiles if proj.get('owner') == 'enemy']
-        if not projectiles:
-            return None
-        player_pos = self.player.pos
-        closest_proj = min(projectiles, key=lambda proj: player_pos.distance_to(proj['pos']))
-        return closest_proj['pos']
-    
-    #########################
-    # Functions for Rewards
-    #########################
-    
-    #def is_within_engagement_radius(self):
-    #    """Check if the player is within the engagement radius of the enemy."""
-    #    distance_to_enemy = self.player.pos.distance_to(self.enemy.pos)
-    #    return distance_to_enemy <= ENGAGEMENT_RADIUS
-
-    def get_proximity_bonus(self, bonus=0.010):
-        """Calculate a continuous bonus based on the player's proximity to the enemy."""
-        distance_to_enemy = self.player.pos.distance_to(self.enemy.pos)
-        normalized_distance = min(distance_to_enemy / ENGAGEMENT_RADIUS, 1)
-        proximity_bonus = bonus * (1 - normalized_distance)
-        return proximity_bonus
-
-    #def get_dodge_and_cover_bonus(self, player_movement, bonus = 0.010):
-    #    dodge_bonus = 0.0
-    #    cover_bonus = 0.0
-    #    negative_dodge_bonus = 0.0
-#
-    #    for proj in self.projectiles:
-    #        if proj['owner'] == 'enemy':
-    #            proj_pos = proj['pos']
-    #            proj_velocity = proj['velocity']
-    #            proj_direction = proj_velocity.normalize()
-    #            if is_point_in_cone(self.player.pos, proj_pos, proj_direction, 30):
-    #                if self.is_player_behind_cover(proj):
-    #                    cover_bonus = bonus
-    #                else:
-    #                    negative_dodge_bonus = -bonus
-    #                if player_movement:
-    #                    angle_between = abs(player_movement.angle_to(proj_direction))
-    #                    if abs(angle_between - 90) <= 15:
-    #                        dodge_bonus = bonus
-    #    total_dodge_bonus = dodge_bonus + negative_dodge_bonus
-    #    return total_dodge_bonus, cover_bonus
-
-    def get_dodge_and_cover_bonus(self, player_velocity, bonus=0.010):
-        dodge_bonus = 0.0
-        cover_bonus = 0.0
-        negative_dodge_bonus = 0.0
-
-        for proj in self.projectiles:
-            if proj['owner'] == 'enemy':
-                proj_pos = proj['pos']
-                proj_velocity = proj['velocity']
-                proj_direction = proj_velocity.normalize()
-                vector_to_player = self.player.pos - proj_pos
-
-                # Check if the player is behind cover relative to the projectile
-                if self._is_player_behind_cover(proj):
-                    cover_bonus += bonus
-
-                # Calculate angle between player's movement and projectile's direction
-                if player_velocity is not None and player_velocity.length() > 0:
-                    angle_between = abs(player_velocity.normalize().angle_to(proj_direction))
-                    # Continuous dodge bonus based on deviation from 90 degrees
-                    dodge_bonus += bonus * (1 - min(abs(angle_between - 90) / 90, 1))
-
-                    # Penalty if the player is moving directly towards or away from the projectile
-                    if abs(angle_between) < 30 or abs(angle_between - 180) < 30:
-                        negative_dodge_bonus -= bonus * (1 - min(abs(angle_between - 90) / 90, 1))
-
-        total_dodge_bonus = dodge_bonus + negative_dodge_bonus
-        return total_dodge_bonus, cover_bonus
-
-    def _is_player_behind_cover(self, proj):
-        """Check if there's an obstacle between the projectile and the player."""
-        proj_pos = proj['pos']
-        player_pos = self.player.pos
+    def _is_obstacle_between(self, point1, point2):
+        """Check if there's an obstacle between two points."""
         for obs in self.obstacles:
             obs_rect = pygame.Rect(obs.x, obs.y, BLOCK_SIZE, BLOCK_SIZE)
-            if line_intersects_rect(proj_pos, player_pos, obs_rect):
+            if line_intersects_rect(point1, point2, obs_rect):
                 return True
         return False
 
-    #def is_shooting_aligned_with_enemy(self):
-    #    """Check if the player is shooting within a certain angle threshold of the enemy."""
-    #    vector_to_enemy = self.enemy.pos - self.player.pos
-    #    angle_to_enemy = math.degrees(math.atan2(vector_to_enemy.y, vector_to_enemy.x))
-    #    player_angle = self.player.angle % 360
-    #    angle_to_enemy = angle_to_enemy % 360
-    #    angle_diff = (angle_to_enemy - player_angle + 180) % 360 - 180
-    #    return abs(angle_diff) <= ALIGNMENT_ANGLE
-
-    def get_shooting_alignment_bonus(self, bonus=0.010):
-        """Calculate a continuous bonus based on how well the player is aligned when shooting."""
-        vector_to_enemy = self.enemy.pos - self.player.pos
-        angle_to_enemy = math.degrees(math.atan2(vector_to_enemy.y, vector_to_enemy.x))
-        player_angle = self.player.angle % 360
-        angle_to_enemy = angle_to_enemy % 360
-        angle_diff = (angle_to_enemy - player_angle + 180) % 360 - 180
-        alignment_bonus = bonus * (1 - abs(angle_diff) / 180)
-        return max(alignment_bonus, 0)  # Ensure non-negative
+    def _is_player_behind_cover_from_enemy(self):
+        """Check if the player is behind cover from the enemy's perspective."""
+        return self._is_obstacle_between(self.enemy.pos, self.player.pos)
+    
+    def is_player_within_proximity(self):
+        """Check if the player is within the proximity range of the enemy."""
+        distance = (self.enemy.pos - self.player.pos).magnitude()
+        return distance <= ENGAGEMENT_RADIUS
 
     def get_state(self):
         """Get the current state representation for the AI agent."""
         # Delta X and Y to Enemy (normalized)
-        delta_x_enemy = (self.enemy.pos.x - self.player.pos.x) / self.w
-        delta_y_enemy = (self.enemy.pos.y - self.player.pos.y) / self.h
+        #delta_x_enemy = (self.enemy.pos.x - self.player.pos.x) / self.w
+        #delta_y_enemy = (self.enemy.pos.y - self.player.pos.y) / self.h
 
-        # Delta X and Y to Closest Obstacle (normalized)
+        # Distance to Enemy (normalized)
+        distance_to_enemy = self.player.pos.distance_to(self.enemy.pos) / max(self.w, self.h)
+
+        # Relative Angle to Enemy (normalized)
+        vector_to_enemy = self.enemy.pos - self.player.pos
+        angle_to_enemy = math.degrees(math.atan2(vector_to_enemy.y, vector_to_enemy.x)) % 360
+        relative_angle_to_enemy = ((angle_to_enemy - self.player.angle + 180) % 360) - 180  # Range [-180, 180]
+        relative_angle_to_enemy_normalized = relative_angle_to_enemy / 180  # Normalize to [-1, 1]
+
+        # Player Angle (normalized between -1 and 1)
+        player_angle_normalized = (self.player.angle % 360) / 180 - 1  # Normalize to [-1, 1]
+
+        # Distance to Center of Map (normalized)
+        center_pos = pygame.Vector2(self.w / 2, self.h / 2)
+        distance_to_center = self.player.pos.distance_to(center_pos) / max(self.w, self.h)
+
+        # Being Covered (1 if there's an obstacle between player and enemy)
+        being_covered = 1 if self._is_player_behind_cover_from_enemy() else 0
+
+        # Angle to Cover (relative angle to nearest obstacle)
         closest_obstacle = self._get_closest_obstacle()
         if closest_obstacle:
-            delta_x_obstacle = (closest_obstacle.x - self.player.pos.x) / self.w
-            delta_y_obstacle = (closest_obstacle.y - self.player.pos.y) / self.h
+            vector_to_obstacle = closest_obstacle - self.player.pos
+            angle_to_obstacle = math.degrees(math.atan2(vector_to_obstacle.y, vector_to_obstacle.x)) % 360
+            relative_angle_to_obstacle = ((angle_to_obstacle - self.player.angle + 180) % 360) - 180  # Range [-180, 180]
+            angle_to_cover = relative_angle_to_obstacle / 180  # Normalize to [-1, 1]
         else:
-            delta_x_obstacle = 0
-            delta_y_obstacle = 0
+            angle_to_cover = 0.0  # No obstacle found
 
-        # Delta X and Y to Closest Incoming Projectile (normalized)
+        # In Projectile Trajectory (1 if player is in direct path of any enemy projectile)
+        in_projectile_trajectory = 1 if self._is_in_projectile_trajectory() else 0
+
+        # Distance to Closest Projectile (normalized)
         closest_projectile = self._get_closest_projectile()
         if closest_projectile:
-            delta_x_projectile = (closest_projectile.x - self.player.pos.x) / self.w
-            delta_y_projectile = (closest_projectile.y - self.player.pos.y) / self.h
+            distance_to_projectile = self.player.pos.distance_to(closest_projectile['pos']) / max(self.w, self.h)
         else:
-            delta_x_projectile = 0
-            delta_y_projectile = 0
+            distance_to_projectile = 1.0  # Max distance
 
-        # Projectile Angle (in degrees)
-        projectile_angle = math.degrees(math.atan2(delta_y_projectile, delta_x_projectile)) if closest_projectile else 0
-
-        # Player Velocity (X and Y components)
-        player_velocity_x = self.player.pos.x / FPS
-        player_velocity_y = self.player.pos.y / FPS
-
-        # Player Angle (normalized between 0 and 360)
-        player_angle = self.player.angle
+        # Line of Sight (1 if no obstacles between player and enemy)
+        line_of_sight = 1 if not self._is_obstacle_between(self.player.pos, self.enemy.pos) else 0
 
         # Cooldown Status
         cooldown_status = 1 if self.player.cooldown == 0 else 0
 
-        # Distance to Center of Map (normalized)
-        center_x = self.w / 2
-        center_y = self.h / 2
-        distance_to_center = np.linalg.norm([self.player.pos.x - center_x, self.player.pos.y - center_y]) / max(self.w, self.h)
-
         # Construct the state array
-        state = [
-            delta_x_enemy,
-            delta_y_enemy,
-            delta_x_obstacle,
-            delta_y_obstacle,
-            delta_x_projectile,
-            delta_y_projectile,
-            projectile_angle,
-            player_velocity_x,
-            player_velocity_y,
-            player_angle,
-            cooldown_status,
-            distance_to_center
-        ]
+        state = [ #10 States
+            #delta_x_enemy,
+            #delta_y_enemy,
+            distance_to_enemy,
+            relative_angle_to_enemy_normalized,
+            player_angle_normalized,
+            distance_to_center,
+            being_covered,
+            angle_to_cover,
+            in_projectile_trajectory,
+            distance_to_projectile,
+            line_of_sight,
+            cooldown_status]
 
         return state
 
@@ -465,5 +482,4 @@ class Game:
 
     def play_step(self, action):
         """Execute one game step based on the action taken."""
-        # To be implemented in subclasses
-        pass
+        pass  # To be implemented in subclasses

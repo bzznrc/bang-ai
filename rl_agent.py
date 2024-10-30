@@ -37,7 +37,7 @@ class RL_Agent:
         if LOAD_PREVIOUS_MODEL:
             self.model.load(f"{MODEL_SAVE_PREFIX}.pth")
             print(f"Loaded model from {MODEL_SAVE_PREFIX}.pth")
-        self.trainer = QTrainer(self.model, lr=LR, gamma=GAMMA, l2_lambda = L2_LAMBDA)
+        self.trainer = QTrainer(self.model)
 
     def get_state(self, game):
         """Get the current state representation from the game."""
@@ -69,7 +69,7 @@ class RL_Agent:
         self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
         if random.random() < self.epsilon:
             # Explore: random action
-            move = random.randint(0, NUM_ACTIONS - 1)  # 8 possible actions
+            move = random.randint(0, NUM_ACTIONS - 1)  # 5 possible actions
         else:
             # Exploit: choose the best action based on the model
             state0 = torch.tensor(state, dtype=torch.float).to(device)
@@ -79,11 +79,10 @@ class RL_Agent:
         action = [0] * NUM_ACTIONS
         action[move] = 1
         return action
-    
+
     def reset_epsilon(self):
         """Reset epsilon to the initial value."""
-        self.epsilon = EPSILON_START / 4
-        #print(f"Epsilon reset to {self.epsilon}")
+        self.epsilon = EPSILON_START / 2
 
 def train():
     """Train the rl_agent."""
@@ -91,13 +90,11 @@ def train():
     avg_rewards = []
     rl_agent = RL_Agent()
     game = GameAI()
-    best_avg_reward = float(1)  # Initialize best average reward
+    best_avg_reward = float('-inf')  # Initialize best average reward
 
     while True:
         episode_reward = 0
         done = False
-        # Initialize the bonuses list for the episode
-        episode_bonuses = [0.0] * 6  # Assuming there are 6 bonuses
 
         while not done:
             # Get the current state
@@ -107,11 +104,8 @@ def train():
             action = rl_agent.get_action(state_old)
 
             # Perform the action and get the new state
-            reward, done, bonuses = game.play_step(action)
+            reward, done = game.play_step(action)
             episode_reward += reward
-
-            # Accumulate bonuses
-            episode_bonuses = [sum(x) for x in zip(episode_bonuses, bonuses)]
 
             # Get the new state after action
             state_new = rl_agent.get_state(game)
@@ -132,23 +126,17 @@ def train():
         avg_rewards.append(avg_reward)
 
         # Print training progress
-        print(f'Game: {rl_agent.n_games}\t\tFrames: {game.frame_count}\t\tReward: {episode_reward:.2f}\t\tAvg L100: {avg_reward:.2f}\t\tEpsilon: {rl_agent.epsilon:.3f}')
-
-        # Unpack the accumulated bonuses
-        (same_action_bonus, proximity_bonus, dodge_bonus, cover_bonus, shoot_alignment_bonus, outcome_bonus) = episode_bonuses
-
-        # Print bonuses, including outcome bonuses
-        print(f'\033[90mSame Action: {same_action_bonus:.2f}\tProximity: {proximity_bonus:.2f}\tDodge: {dodge_bonus:.2f}\t\tCover: {cover_bonus:.2f}\t\tShoot Al.: {shoot_alignment_bonus:.2f}\tOutcome: {outcome_bonus:.2f}\033[0m')
+        print(f'Game: {rl_agent.n_games}\tFrames: {game.frame_count}\tReward: {episode_reward:.2f}\tAvg.: {avg_reward:.2f}\tBest: {best_avg_reward:.2f}\tEpsilon: {rl_agent.epsilon:.3f}')
 
         # Reset the game after printing
         game.reset()
 
-        # Save the model every 10 games
-        if rl_agent.n_games % 10 == 0:
+        # Save the model every 50 games
+        if rl_agent.n_games % 50 == 0:
             rl_agent.model.save(f"{MODEL_SAVE_PREFIX}.pth")
 
-        # Save the model if a new best average reward is achieved
-        if avg_reward > best_avg_reward:
+        # Save the model if a new best average reward is achieved after 100 games
+        if avg_reward > best_avg_reward and rl_agent.n_games >= 100:
             best_avg_reward = avg_reward
             rl_agent.model.save(f"{MODEL_SAVE_PREFIX}_top.pth")
 

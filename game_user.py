@@ -5,17 +5,20 @@
 from game import Game
 import pygame
 from constants import *
+from utils import *
 
 class GameUser(Game):
     """User-controlled version of the Game."""
 
+    def __init__(self):
+        """Initialize the GameUser."""
+        super().__init__()
+
     def play_step(self):
         """Execute one game step."""
         self.frame_count += 1
-        move_up = False
-        move_down = False
-        move_left = False
-        move_right = False
+        move_forward = False
+        move_backward = False
         rotate_left = False
         rotate_right = False
         shoot = False
@@ -28,47 +31,38 @@ class GameUser(Game):
 
         keys = pygame.key.get_pressed()
         if keys[pygame.K_w]:
-            move_up = True
+            move_forward = True
         if keys[pygame.K_s]:
-            move_down = True
+            move_backward = True
         if keys[pygame.K_a]:
-            move_left = True
-        if keys[pygame.K_d]:
-            move_right = True
-        if keys[pygame.K_LEFT]:
             rotate_left = True
-        if keys[pygame.K_RIGHT]:
+        if keys[pygame.K_d]:
             rotate_right = True
         if keys[pygame.K_SPACE]:
             shoot = True
         if keys[pygame.K_LCTRL]:
             self.print_state()  # DEBUG
 
-        # Move player
-        self._move_agent(self.player, move_up, move_down, move_left, move_right, rotate_left, rotate_right)
-
-        # Handle shooting
-        if shoot:
-            self._agent_shoot(self.player)
-
-        # Update projectiles
-        self._handle_projectiles()
+        # Determine current action using the utility function
+        current_action = determine_current_action(move_forward, move_backward, rotate_left, rotate_right, shoot)
 
         # Decrement cooldowns
         self._decrement_cooldowns()
 
+        # Apply the action using the centralized method
+        self.apply_action(current_action)
+
         # Handle enemy actions
         self._enemy_actions()
+
+        # Handle projectiles
+        self._handle_projectiles()
 
         # Update UI
         self.ui.update_ui()
 
         # Adjust the clock tick
-        if SHOW_GAME:
-            self.clock.tick(FPS)
-        else:
-            # Run as fast as possible when not showing the game
-            self.clock.tick(0)
+        self.clock.tick(FPS if SHOW_GAME else 0)
 
         # Check for game over
         if not self.enemy.alive:
