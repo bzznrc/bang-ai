@@ -3,7 +3,7 @@ Bang AI - Reinforcement Learning TPS (Third Person Shooter)
 
 **This is currently under development.**
 
-### Inputs (10 Total):
+### Inputs (16 Total):
 - Distance to Obstacle (8 inputs, each covering 45°)
 - Enemy Distance
 - Enemy Angle
