@@ -31,34 +31,10 @@ def line_intersects_rect(p1, p2, rect):
     """Check if the line segment between p1 and p2 intersects the rectangle."""
     return rect.clipline(p1, p2)
 
-def determine_current_action(move_forward, move_backward, rotate_left, rotate_right, shoot):
-    """Determine the current action based on movement and rotation flags."""
-    if shoot:
-        return ACTION_SHOOT
-    elif rotate_left:
-        return ACTION_TURN_LEFT
-    elif rotate_right:
-        return ACTION_TURN_RIGHT
-    elif move_forward:
-        return ACTION_MOVE_FORWARD
-    elif move_backward:
-        return ACTION_MOVE_BACKWARD
-    else:
-        return ACTION_WAIT  # Default action is to wait/do nothing
-
-def get_player_movement_vector(player_angle, action_index):
-    """Get the player's movement vector based on the action index."""
-    if action_index == ACTION_MOVE_FORWARD:
-        movement = pygame.Vector2(
-            math.cos(math.radians(player_angle)),
-            math.sin(math.radians(player_angle))
-        ) * PLAYER_SPEED
-    elif action_index == ACTION_MOVE_BACKWARD:
-        movement = -pygame.Vector2(
-            math.cos(math.radians(player_angle)),
-            math.sin(math.radians(player_angle))
-        ) * PLAYER_SPEED
-    else:
-        return pygame.Vector2(0, 0)  # No movement action
-
-    return movement
+def is_obstacle_between(game, point1, point2):
+    """Check if there's an obstacle between two points."""
+    for obs in game.obstacles:
+        obs_rect = pygame.Rect(obs.x, obs.y, BLOCK_SIZE, BLOCK_SIZE)
+        if line_intersects_rect(point1, point2, obs_rect):
+            return True
+    return False

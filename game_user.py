@@ -5,23 +5,18 @@
 from game import Game
 import pygame
 from constants import *
-from utils import *
 
 class GameUser(Game):
     """User-controlled version of the Game."""
 
     def __init__(self):
         """Initialize the GameUser."""
-        super().__init__()
+        super().__init__(level=STARTING_LEVEL)  # Use STARTING_LEVEL from constants
 
     def play_step(self):
         """Execute one game step."""
         self.frame_count += 1
-        move_forward = False
-        move_backward = False
-        rotate_left = False
-        rotate_right = False
-        shoot = False
+        current_action = None
 
         # Handle user input
         for event in pygame.event.get():
@@ -30,6 +25,8 @@ class GameUser(Game):
                 quit()
 
         keys = pygame.key.get_pressed()
+        move_forward = move_backward = rotate_left = rotate_right = shoot = False
+
         if keys[pygame.K_w]:
             move_forward = True
         if keys[pygame.K_s]:
@@ -40,14 +37,23 @@ class GameUser(Game):
             rotate_right = True
         if keys[pygame.K_SPACE]:
             shoot = True
+
+        # Map inputs to action index
+        if move_forward and not (rotate_left or rotate_right):
+            current_action = ACTION_MOVE_FORWARD
+        elif move_backward and not (rotate_left or rotate_right):
+            current_action = ACTION_MOVE_BACKWARD
+        elif rotate_left and not (move_forward or move_backward):
+            current_action = ACTION_TURN_LEFT
+        elif rotate_right and not (move_forward or move_backward):
+            current_action = ACTION_TURN_RIGHT
+        elif shoot:
+            current_action = ACTION_SHOOT
+        else:
+            current_action = ACTION_WAIT  # Default
+
         if keys[pygame.K_LCTRL]:
             self.print_state()  # DEBUG
-
-        # Determine current action using the utility function
-        current_action = determine_current_action(move_forward, move_backward, rotate_left, rotate_right, shoot)
-
-        # Decrement cooldowns
-        self._decrement_cooldowns()
 
         # Apply the action using the centralized method
         self.apply_action(current_action)
@@ -67,13 +73,13 @@ class GameUser(Game):
         # Check for game over
         if not self.enemy.alive:
             # P1 wins this round
-            pygame.time.delay(3000)  # 3-second delay
+            pygame.time.delay(1000)  # 1-second delay
             self.p1_score += 1  # Increment P1 score
             self.reset()  # Reset the game but keep scores
             return False, (self.p1_score, self.p2_score)
         elif not self.player.alive:
-            # P2 wins this round
-            pygame.time.delay(3000)  # 3-second delay
+            # Enemy wins this round
+            pygame.time.delay(1000)  # 1-second delay
             self.p2_score += 1  # Increment P2 score
             self.reset()  # Reset the game but keep scores
             return False, (self.p1_score, self.p2_score)

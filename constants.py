@@ -28,27 +28,35 @@ COLOR_SCORE = (255, 255, 255)            # White for score display
 
 # Game Constants
 PLAYER_SPEED = 5           # Movement speed of the player (pixels per frame)
-ROTATION_SPEED = 15        # Rotation angle in degrees per action
+ROTATION_SPEED = 5         # Rotation angle in degrees per action
 PROJECTILE_SPEED = 10      # Speed of projectiles (pixels per frame)
 SHOOT_COOLDOWN = 30        # Frames until the player can shoot again
+ALIGNMENT_TOLERANCE = 10
+
+# Enemy Constants (Adjusted for Curriculum)
+ENEMY_STATIONARY = True  # Initially stationary
+ENEMY_SHOOTING = False   # Initially not shooting
+ENEMY_MOVE_PROBABILITY = 0.0  # No movement initially
+ENEMY_SHOOT_COOLDOWN = SHOOT_COOLDOWN * 3  # Adjusted for curriculum
+
+# Curriculum Levels
+STARTING_LEVEL = 1  # Starting level for the game (1, 2, or 3)
+LEVEL_UP_GAMES = 2000  # Number of games after which the level increases
+MAX_LEVEL = 3  # Maximum level achievable
 
 # Obstacle Constants
-NUM_OBSTACLES = 12         # Number of obstacles to spawn in the game
-
-# Add these constants to constants.py if not already present
+NUM_OBSTACLES = 4         # Starting with 4 obstacles
 MIN_SECTIONS = 2          # Minimum number of sections for obstacles
 MAX_SECTIONS = 5          # Maximum number of sections for obstacles
-
-SAFE_RADIUS = 100  # Minimum distance from players in pixels
-
-SPAWN_Y_OFFSET = 80  # Adjust this value to control the range of vertical displacement
+SAFE_RADIUS = 100         # Minimum distance from players in pixels
+SPAWN_Y_OFFSET = 80       # Adjust this value to control the range of vertical displacement
 
 # Font
 FONT_SIZE = 24             # Font size for text displays
 
 # Model Constants
-MODEL_SAVE_PREFIX = 'bang_128_64_32'     # Prefix tag for saving models
-LOAD_PREVIOUS_MODEL = True     # Start training from a saved model if True
+MODEL_SAVE_PREFIX = 'model/bang'     # Prefix tag for saving models
+LOAD_PREVIOUS_MODEL = False     # Start training from a saved model if True
 
 # Toggle for training plots
 PLOT_TRAIN = False
@@ -59,29 +67,27 @@ SHOW_GAME = False  # Set to True to display the game window during training
 MAX_MEMORY = 100_000    # Maximum size of the replay memory
 BATCH_SIZE = 1024       # Number of samples per training batch
 LR = 0.0005             # Learning rate for the optimizer
-#HIDDEN_LAYERS = [256, 128, 64, 32]
 HIDDEN_LAYERS = [128, 64, 32]
 
-GAMMA = 0.99            # Discount factor for future rewards
+GAMMA = 0.95            # Discount factor for future rewards
 L2_LAMBDA = 0.001       # Weight Decay / 0 = off
 DROPOUT_RATE = 0.2      # Dropout Rate / 0 = off
 
 # Epsilon Parameters for Exploration
 EPSILON_START = 1         # Initial exploration rate
-EPSILON_DECAY = 0.999995    # Decay rate for exploration
-EPSILON_MIN = 0.05          # Minimum exploration rate
+EPSILON_DECAY = 0.999995  # Decay rate for exploration
+EPSILON_MIN = 0.05        # Minimum exploration rate
 
 # Parameters for RL
 MAX_MATCH_DURATION = 1000   # Maximum number of frames per match
 
 # Reward Constants
-WIN_REWARD = 10
-LOSS_PENALTY = -10
-PROXIMITY_REWARD = 0.02
-#REPEAT_REWARD = 0.05 # Positive reward for repeating the same movement action
-
-# Engagement Constants
-ENGAGEMENT_RADIUS = 240     # Radius within which the player should stay close to the enemy
+WIN_REWARD = 100
+LOSS_PENALTY = -100
+TIME_PENALTY = -0.1              # Time penalty per frame
+APPROACH_REWARD_FACTOR = 0.1     # Reward per unit distance closer to enemy
+AIM_REWARD = 0.5                  # Reward for aligning aim towards enemy
+SHOOT_REWARD = 1                  # Reward for shooting when enemy is in sight
 
 # Action Space Indices
 ACTION_MOVE_FORWARD = 0
@@ -94,7 +100,7 @@ ACTION_WAIT = 5
 NUM_ACTIONS = 6  # Total number of actions
 
 # Number of inputs
-NUM_INPUTS = 10  # Adjusted total number of inputs
+NUM_INPUTS = 16  # Adjusted total number of inputs (with 8 obstacle distances)
 
-ENEMY_SHOOT_COOLDOWN = 180  # Enemy shoots every 3 seconds at 60 FPS
-ENEMY_MOVE_PROBABILITY = 0.05  # Adjust as needed (e.g., 0.05 means 5% chance to move each frame)
+# Activation Function
+ACTIVATION_FUNCTION = 'ReLU'  # Use the best activation function

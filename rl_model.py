@@ -2,111 +2,77 @@
 # RL_MODEL
 ##################################################
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from pathlib import Path
+import numpy as np
 from constants import *
 from utils import get_device
 
 device = get_device()
 
 class LinearQNet(nn.Module):
-    """Feedforward Neural Network with customizable hidden layers."""
-
-    def __init__(self, input_size, hidden_layers, output_size):
-        super(LinearQNet, self).__init__()
+    """Neural network model for Q-learning."""
+    def __init__(self, input_size, hidden_sizes, output_size):
+        super().__init__()
         layers = []
-        in_size = input_size
-
-        # Dynamically create hidden layers
-        for hidden_size in hidden_layers:
-            layers.append(nn.Linear(in_size, hidden_size))
-            layers.append(nn.ReLU())
-            if DROPOUT_RATE != 0:
-                layers.append(nn.Dropout(DROPOUT_RATE))  # Adding dropout layer
-            in_size = hidden_size
-
-        # Output layer
-        layers.append(nn.Linear(in_size, output_size))
-        self.network = nn.Sequential(*layers)
+        prev_size = input_size
+        for size in hidden_sizes:
+            layers.append(nn.Linear(prev_size, size))
+            if DROPOUT_RATE > 0:
+                layers.append(nn.Dropout(DROPOUT_RATE))
+            if ACTIVATION_FUNCTION == 'ReLU':
+                layers.append(nn.ReLU())
+            elif ACTIVATION_FUNCTION == 'LeakyReLU':
+                layers.append(nn.LeakyReLU())
+            prev_size = size
+        layers.append(nn.Linear(prev_size, output_size))
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x):
-        return self.network(x)
+        return self.net(x)
 
-    def save(self, file_name):
-        """Save the model to a file."""
-        model_folder_path = Path('./model')
-        model_folder_path.mkdir(parents=True, exist_ok=True)
-        file_path = model_folder_path / file_name
-        torch.save(self.state_dict(), file_path)
-        print(f"Model saved to {file_path}")
+    def save(self, file_name='model.pth'):
+        torch.save(self.state_dict(), file_name)
 
-    def load(self, file_name):
-        """Load the model from a file."""
-        model_folder_path = Path('./model')
-        file_path = model_folder_path / file_name
-        if file_path.exists():
-            self.load_state_dict(torch.load(file_path, map_location=device))
-            self.to(device)  # Ensure the model is on the correct device
-            self.eval()
-            print(f"Model loaded from {file_path}")
-        else:
-            print(f"No model found at {file_path}. Starting from scratch.")
+    def load(self, file_name='model.pth'):
+        self.load_state_dict(torch.load(file_name, map_location=device))
 
 class QTrainer:
-    """Trainer class for the Q-learning model."""
-
+    """Trainer class for the Q-network."""
     def __init__(self, model):
         self.model = model
-        self.lr = LR
-        self.gamma = GAMMA
-        self.optimizer = optim.Adam(self.model.parameters(), lr=LR, weight_decay=L2_LAMBDA)
+        self.optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=L2_LAMBDA)
         self.criterion = nn.MSELoss()
 
     def train_step(self, state, action, reward, next_state, done):
-        """Perform one training step."""
-        # Convert to tensors and move to device
         state = torch.tensor(np.array(state), dtype=torch.float).to(device)
         next_state = torch.tensor(np.array(next_state), dtype=torch.float).to(device)
         action = torch.tensor(np.array(action), dtype=torch.long).to(device)
         reward = torch.tensor(np.array(reward), dtype=torch.float).to(device)
-        done = torch.tensor(np.array(done), dtype=torch.bool).to(device)
 
-        # Reshape if necessary
         if len(state.shape) == 1:
-            # Add batch dimension
+            # Reshape for single sample
             state = state.unsqueeze(0)
             next_state = next_state.unsqueeze(0)
             action = action.unsqueeze(0)
             reward = reward.unsqueeze(0)
-            done = done.unsqueeze(0)
+            done = (done, )
 
-        # 1. Predict Q values with current state
-        pred = self.model(state)  # Shape: (batch_size, num_actions)
+        # Predicted Q values with current state
+        pred = self.model(state)
 
-        # 2. Compute target Q values
-        target = pred.clone().detach()  # Detach to prevent gradient computation on target
+        target = pred.clone()
+        for idx in range(len(done)):
+            Q_new = reward[idx]
+            if not done[idx]:
+                Q_next = self.model(next_state[idx])
+                Q_new = reward[idx] + GAMMA * torch.max(Q_next)
 
-        # Compute predicted Q values for next state
-        with torch.no_grad():
-            next_pred = self.model(next_state)
-            max_next_pred, _ = torch.max(next_pred, dim=1)
+            target[idx][torch.argmax(action[idx]).item()] = Q_new
 
-        # Compute Q_new
-        Q_new = reward + (1 - done.float()) * self.gamma * max_next_pred
-
-        # Get indices of actions taken
-        action_indices = torch.argmax(action, dim=1)
-
-        # Update target Q-values
-        target[range(target.size(0)), action_indices] = Q_new
-
-        # 3. Optimize the model
+        # Optimize the model
         self.optimizer.zero_grad()
         loss = self.criterion(pred, target)
         loss.backward()
         self.optimizer.step()
-
-        return loss.item()

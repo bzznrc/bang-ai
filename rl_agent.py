@@ -69,7 +69,7 @@ class RL_Agent:
         self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
         if random.random() < self.epsilon:
             # Explore: random action
-            move = random.randint(0, NUM_ACTIONS - 1)  # 5 possible actions
+            move = random.randint(0, NUM_ACTIONS - 1)  # 6 possible actions
         else:
             # Exploit: choose the best action based on the model
             state0 = torch.tensor(state, dtype=torch.float).to(device)
@@ -80,17 +80,15 @@ class RL_Agent:
         action[move] = 1
         return action
 
-    def reset_epsilon(self):
-        """Reset epsilon to the initial value."""
-        self.epsilon = EPSILON_START / 2
-
 def train():
-    """Train the rl_agent."""
+    """Train the RL_Agent."""
     total_rewards = deque(maxlen=100)
     avg_rewards = []
     rl_agent = RL_Agent()
-    game = GameAI()
+    current_level = STARTING_LEVEL
+    game = GameAI(level=current_level)  # Start with the level from constants
     best_avg_reward = float('-inf')  # Initialize best average reward
+    games_played_at_current_level = 0  # Counter for games played at the current level
 
     while True:
         episode_reward = 0
@@ -118,7 +116,8 @@ def train():
 
         # At this point, the game is over
         rl_agent.n_games += 1
-        loss = rl_agent.train_long_memory()
+        games_played_at_current_level += 1
+        rl_agent.train_long_memory()
 
         # Record rewards
         total_rewards.append(episode_reward)
@@ -126,27 +125,37 @@ def train():
         avg_rewards.append(avg_reward)
 
         # Print training progress
-        print(f'Game: {rl_agent.n_games}\tFrames: {game.frame_count}\tReward: {episode_reward:.2f}\tAvg.: {avg_reward:.2f}\tBest: {best_avg_reward:.2f}\tEpsilon: {rl_agent.epsilon:.3f}')
+        print(f'Game: {rl_agent.n_games}\tLevel: {current_level}\tFrames: {game.frame_count}\tReward: {episode_reward:.2f}\tAvg.: {avg_reward:.2f}\tBest: {best_avg_reward:.2f}\tEpsilon: {rl_agent.epsilon:.3f}')
 
-        # Reset the game after printing
-        game.reset()
+        # Level up logic
+        if games_played_at_current_level >= LEVEL_UP_GAMES and current_level < MAX_LEVEL:
+            current_level += 1
+            game.level = current_level
+            game.configure_level()
+            games_played_at_current_level = 0  # Reset counter
+            print(f"----- Level Up: {game.level} -----")
 
         # Save the model every 50 games
         if rl_agent.n_games % 50 == 0:
             rl_agent.model.save(f"{MODEL_SAVE_PREFIX}.pth")
+            print("----- Model Saved -----")
 
         # Save the model if a new best average reward is achieved after 100 games
         if avg_reward > best_avg_reward and rl_agent.n_games >= 100:
             best_avg_reward = avg_reward
             rl_agent.model.save(f"{MODEL_SAVE_PREFIX}_top.pth")
+            print("----- TOP Model Saved -----")
 
-        # Reset epsilon at specified intervals
-        if rl_agent.n_games % 1000 == 0:
-            rl_agent.reset_epsilon()
+        if rl_agent.n_games % 500 == 0:
+            rl_agent.epsilon = EPSILON_START / 4  # Initial exploration rate
+            print(f"----- Epsilon Reset: {rl_agent.epsilon} -----")
 
         # Plot the average rewards
         if PLOT_TRAIN:
             plot(avg_rewards)
+
+        # Reset the game after printing
+        game.reset()
 
 if __name__ == '__main__':
     train()
