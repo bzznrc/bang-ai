@@ -1,61 +1,55 @@
-##################################################
-# GAME_AGENT
-##################################################
+"""Entity model for player and enemy agents."""
 
 import pygame
-import math
-from constants import *
 
-class GameAgent:
-    """Class representing a game agent (player or enemy)."""
+from constants import (
+    PLAYER_MOVE_SPEED,
+    PLAYER_ROTATION_DEGREES,
+    PROJECTILE_SPEED,
+    SHOOT_COOLDOWN_FRAMES,
+)
+from utils import heading_to_vector
 
-    def __init__(self, position, angle, agent_type='player'):
-        self.pos = position
+
+class Actor:
+    """A movable actor that can rotate and shoot projectiles."""
+
+    def __init__(self, position: pygame.Vector2, angle: float, team: str = "player"):
+        self.position = position
         self.angle = angle
-        self.cooldown = 0
-        self.alive = True
-        self.type = agent_type  # 'player' or 'enemy'
+        self.cooldown_frames = 0
+        self.is_alive = True
+        self.team = team
 
-    def move(self, move_forward, move_backward, rotate_left, rotate_right):
-        """Update the agent's position and angle based on input."""
-        # Rotation
+    def step_movement(self, move_forward: bool, move_backward: bool, rotate_left: bool, rotate_right: bool) -> pygame.Vector2:
+        """Update heading and return a movement vector for this frame."""
         if rotate_left:
-            self.angle = (self.angle + ROTATION_SPEED) % 360
+            self.angle = (self.angle + PLAYER_ROTATION_DEGREES) % 360
         if rotate_right:
-            self.angle = (self.angle - ROTATION_SPEED) % 360
+            self.angle = (self.angle - PLAYER_ROTATION_DEGREES) % 360
 
-        # Movement in the direction the agent is facing
+        direction = heading_to_vector(self.angle)
         movement = pygame.Vector2(0, 0)
         if move_forward:
-            movement += pygame.Vector2(
-                math.cos(math.radians(self.angle)),
-                math.sin(math.radians(self.angle))
-            ) * PLAYER_SPEED
+            movement += direction * PLAYER_MOVE_SPEED
         if move_backward:
-            movement -= pygame.Vector2(
-                math.cos(math.radians(self.angle)),
-                math.sin(math.radians(self.angle))
-            ) * PLAYER_SPEED
-
+            movement -= direction * PLAYER_MOVE_SPEED
         return movement
 
     def shoot(self):
-        """Handle agent shooting."""
-        if self.cooldown == 0:
-            direction = pygame.Vector2(
-                math.cos(math.radians(self.angle)),
-                math.sin(math.radians(self.angle))
-            )
-            projectile = {
-                'pos': self.pos + direction * 20,  # Start slightly ahead of the agent
-                'velocity': direction * PROJECTILE_SPEED,
-                'owner': self.type  # 'player' or 'enemy'
-            }
-            self.cooldown = SHOOT_COOLDOWN if self.type == 'player' else ENEMY_SHOOT_COOLDOWN
-            return projectile
-        return None
+        """Return projectile dict when cooldown is ready, else None."""
+        if self.cooldown_frames > 0:
+            return None
 
-    def decrement_cooldown(self):
-        """Decrement the shooting cooldown."""
-        if self.cooldown > 0:
-            self.cooldown -= 1
+        direction = heading_to_vector(self.angle)
+        self.cooldown_frames = SHOOT_COOLDOWN_FRAMES
+        return {
+            "pos": self.position + direction * 20,
+            "velocity": direction * PROJECTILE_SPEED,
+            "owner": self.team,
+        }
+
+    def tick(self):
+        """Advance per-frame actor timers."""
+        if self.cooldown_frames > 0:
+            self.cooldown_frames -= 1
