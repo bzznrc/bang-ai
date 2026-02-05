@@ -1,470 +1,287 @@
-##################################################
-# GAME
-##################################################
+"""Core arena simulation used by training and human play modes."""
 
-import pygame
 import math
 import random
-import numpy as np
-from constants import *
-from utils import *
-from ui import GameUI
-from game_agent import GameAgent  # Import the updated GameAgent
 
-class Game:
-    """Base class representing the Game."""
+import pygame
 
-    def __init__(self, level=1):
-        """Initialize the game state."""
-        # Game dimensions
-        self.w = SCREEN_WIDTH
-        self.h = SCREEN_HEIGHT
+from constants import (
+    ACTION_MOVE_BACKWARD,
+    ACTION_MOVE_FORWARD,
+    ACTION_SHOOT,
+    ACTION_TURN_LEFT,
+    ACTION_TURN_RIGHT,
+    ACTION_WAIT,
+    AIM_TOLERANCE_DEGREES,
+    BOTTOM_BAR_HEIGHT,
+    DEFAULT_OBSTACLES,
+    MAX_OBSTACLE_SECTIONS,
+    MAX_LEVEL,
+    MIN_OBSTACLE_SECTIONS,
+    SAFE_RADIUS,
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH,
+    SHOW_GAME,
+    SPAWN_Y_OFFSET,
+    TILE_SIZE,
+)
+from game_agent import Actor
+from ui import Renderer
+from utils import is_collision, is_obstacle_between, normalize_angle_degrees
 
-        # Initialize Pygame
+
+class BaseGame:
+    """Two-player top-down arena game logic."""
+
+    def __init__(self, level: int = 1):
+        self.width = SCREEN_WIDTH
+        self.height = SCREEN_HEIGHT
+
         pygame.init()
         self.clock = pygame.time.Clock()
+        self.display = pygame.display.set_mode((self.width, self.height)) if SHOW_GAME else pygame.Surface((self.width, self.height))
         if SHOW_GAME:
-            self.display = pygame.display.set_mode((self.w, self.h))
-            pygame.display.set_caption('Bang')
-        else:
-            # Create a surface to avoid issues when not displaying the game
-            self.display = pygame.Surface((self.w, self.h))
+            pygame.display.set_caption("Bang")
 
-        # Initialize UI
-        self.ui = GameUI(self.display, self)
+        self.ui = Renderer(self.display, self)
 
-        # Initialize scores
         self.p1_score = 0
         self.p2_score = 0
-
-        # Initialize previous action
-        self.prev_action = None
-
-        # Set game level for curriculum learning
         self.level = level
         self.configure_level()
-
         self.reset()
 
     def configure_level(self):
-        """Configure game parameters based on the current level."""
-        if self.level == 1:
+        """Configure enemy complexity and obstacle density."""
+        level = max(1, min(self.level, MAX_LEVEL))
+        if level == 1:
             self.num_obstacles = 4
-            self.enemy_stationary = True
-            self.enemy_shooting = True
-            self.enemy_move_probability = 0.0
-            self.enemy_shoot_cooldown = float('inf')  # Shoot without cooldown
-            self.enemy_behavior = self._enemy_behavior_level1
-        elif self.level == 2:
+            self.enemy_can_move = False
+            self.enemy_shot_error_choices = [-20, -10, 0, 10, 20]
+        elif level == 2:
             self.num_obstacles = 8
-            self.enemy_stationary = True
-            self.enemy_shooting = True
-            self.enemy_move_probability = 0.0
-            self.enemy_shoot_cooldown = SHOOT_COOLDOWN * 3
-            self.enemy_behavior = self._enemy_behavior_level2
-        elif self.level == 3:
-            self.num_obstacles = 12
-            self.enemy_stationary = False
-            self.enemy_shooting = True
-            self.enemy_move_probability = 0.05
-            self.enemy_shoot_cooldown = SHOOT_COOLDOWN * 3
-            self.enemy_behavior = self._enemy_behavior_level3
+            self.enemy_can_move = True
+            self.enemy_shot_error_choices = [-12, -6, 0, 6, 12]
         else:
-            # Default configuration
-            self.num_obstacles = NUM_OBSTACLES
-            self.enemy_stationary = ENEMY_STATIONARY
-            self.enemy_shooting = ENEMY_SHOOTING
-            self.enemy_move_probability = ENEMY_MOVE_PROBABILITY
-            self.enemy_shoot_cooldown = ENEMY_SHOOT_COOLDOWN
-            self.enemy_behavior = self._enemy_behavior_level1  # Default to level 1 behavior
+            self.num_obstacles = 12
+            self.enemy_can_move = True
+            self.enemy_shot_error_choices = [-8, -4, 0, 4, 8]
+
+        self.enemy_move_probability = 0.04 * level
+        self.num_obstacles = self.num_obstacles or DEFAULT_OBSTACLES
 
     def reset(self):
-        """Reset the game state."""
-        # Calculate random Y-offset for player and enemy
-        player_y_offset = random.choice([0, SPAWN_Y_OFFSET, -SPAWN_Y_OFFSET])
-        enemy_y_offset = random.choice([0, SPAWN_Y_OFFSET, -SPAWN_Y_OFFSET])
+        player_offset = random.choice([0, SPAWN_Y_OFFSET, -SPAWN_Y_OFFSET])
+        enemy_offset = random.choice([0, SPAWN_Y_OFFSET, -SPAWN_Y_OFFSET])
 
-        # Initialize player with variable Y position
-        player_pos = pygame.Vector2(self.w / 8, (self.h / 2 - BB_HEIGHT // 2) + player_y_offset)
-        self.player = GameAgent(player_pos, angle=0, agent_type='player')  # Facing right
+        player_pos = pygame.Vector2(self.width / 8, (self.height / 2 - BOTTOM_BAR_HEIGHT // 2) + player_offset)
+        enemy_pos = pygame.Vector2(7 * self.width / 8, (self.height / 2 - BOTTOM_BAR_HEIGHT // 2) + enemy_offset)
 
-        # Initialize enemy with variable Y position
-        enemy_pos = pygame.Vector2(7 * self.w / 8, (self.h / 2 - BB_HEIGHT // 2) + enemy_y_offset)
-        self.enemy = GameAgent(enemy_pos, angle=180, agent_type='enemy')  # Facing left
+        self.player = Actor(player_pos, angle=0, team="player")
+        self.enemy = Actor(enemy_pos, angle=180, team="enemy")
 
         self.obstacles = []
         self.projectiles = []
-
-        self.frame_count = 0  # Do not reset scores here
+        self.frame_count = 0
         self._place_obstacles()
 
-        # Initialize enemy behavior variables
-        self.enemy_state = 'idle'  # Enemy state: 'idle', 'move', 'attack'
-        self.enemy_state_counter = 0
+    def apply_player_action(self, action_index: int):
+        move_forward = action_index == ACTION_MOVE_FORWARD
+        move_backward = action_index == ACTION_MOVE_BACKWARD
+        rotate_left = action_index == ACTION_TURN_LEFT
+        rotate_right = action_index == ACTION_TURN_RIGHT
 
-        # Initialize previous enemy distance for reward calculation
-        self.prev_enemy_distance = self.player.pos.distance_to(self.enemy.pos)
+        movement = self.player.step_movement(move_forward, move_backward, rotate_left, rotate_right)
+        self._update_actor_position(self.player, movement)
 
-    def apply_action(self, action_index):
-        """
-        Apply the given action to the player.
-        """
-        move_forward = move_backward = rotate_left = rotate_right = shoot = False
-
-        if action_index == ACTION_MOVE_FORWARD:
-            move_forward = True
-        elif action_index == ACTION_MOVE_BACKWARD:
-            move_backward = True
-        elif action_index == ACTION_TURN_LEFT:
-            rotate_left = True
-        elif action_index == ACTION_TURN_RIGHT:
-            rotate_right = True
-        elif action_index == ACTION_SHOOT:
-            shoot = True
-        elif action_index == ACTION_WAIT:
-            pass  # Do nothing
-
-        # Move player using GameAgent's move method
-        movement = self.player.move(move_forward, move_backward, rotate_left, rotate_right)
-        self._update_agent_position(self.player, movement)
-
-        # Handle shooting
-        if shoot:
+        if action_index == ACTION_SHOOT:
             projectile = self.player.shoot()
             if projectile:
                 self.projectiles.append(projectile)
 
-        # Decrement cooldown
-        self.player.decrement_cooldown()
-
-    def _update_agent_position(self, agent, movement):
-        """Update agent's position if there is no collision."""
-        new_position = agent.pos + movement
-
-        # Check collisions with obstacles
-        agent_rect = pygame.Rect(new_position.x - BLOCK_SIZE // 2, new_position.y - BLOCK_SIZE // 2, BLOCK_SIZE, BLOCK_SIZE)
-        if is_collision(self, agent_rect):
+    def _update_actor_position(self, actor, movement: pygame.Vector2):
+        new_position = actor.position + movement
+        actor_rect = pygame.Rect(new_position.x - TILE_SIZE // 2, new_position.y - TILE_SIZE // 2, TILE_SIZE, TILE_SIZE)
+        if is_collision(self, actor_rect):
             return
 
-        # Check collisions with other agent
-        other_agent = self.enemy if agent == self.player else self.player
-        if other_agent.alive:
-            other_rect = pygame.Rect(other_agent.pos.x - BLOCK_SIZE // 2, other_agent.pos.y - BLOCK_SIZE // 2, BLOCK_SIZE, BLOCK_SIZE)
-            if agent_rect.colliderect(other_rect):
+        other = self.enemy if actor is self.player else self.player
+        if other.is_alive:
+            other_rect = pygame.Rect(other.position.x - TILE_SIZE // 2, other.position.y - TILE_SIZE // 2, TILE_SIZE, TILE_SIZE)
+            if actor_rect.colliderect(other_rect):
                 return
 
-        # No collision detected, move
-        agent.pos = new_position
+        actor.position = new_position
 
     def _place_obstacles(self):
-        """Place multiple obstacles (sections) in random locations."""
         self.obstacles = []
         for _ in range(self.num_obstacles):
-            num_sections = random.randint(MIN_SECTIONS, MAX_SECTIONS)
-            # Random starting point
-            attempts = 0
-            max_attempts = 100
-            while attempts < max_attempts:
-                x = random.randint(0, (self.w - BLOCK_SIZE) // BLOCK_SIZE) * BLOCK_SIZE
-                y = random.randint(0, (self.h - BB_HEIGHT - BLOCK_SIZE) // BLOCK_SIZE) * BLOCK_SIZE
-                start_point = pygame.Vector2(x, y)
-
-                # Check distance from player and enemy
-                if (start_point.distance_to(self.player.pos) < SAFE_RADIUS or
-                    start_point.distance_to(self.enemy.pos) < SAFE_RADIUS):
-                    attempts += 1
-                    continue
-
-                # Check if start_point overlaps with existing obstacles
-                if any(start_point == obs for obs in self.obstacles):
-                    attempts += 1
-                    continue
-                break
-            else:
-                # Failed to place this obstacle, skip
+            start = self._sample_valid_obstacle_start()
+            if start is None:
                 continue
 
-            # Generate a connected open shape
-            directions = [(-BLOCK_SIZE, 0), (BLOCK_SIZE, 0), (0, -BLOCK_SIZE), (0, BLOCK_SIZE)]
-            shape = [start_point]
-            current_point = start_point
-
-            for _ in range(num_sections - 1):
+            shape = [start]
+            current = start
+            directions = [(-TILE_SIZE, 0), (TILE_SIZE, 0), (0, -TILE_SIZE), (0, TILE_SIZE)]
+            for _ in range(random.randint(MIN_OBSTACLE_SECTIONS, MAX_OBSTACLE_SECTIONS) - 1):
                 random.shuffle(directions)
+                extended = False
                 for dx, dy in directions:
-                    next_point = pygame.Vector2(current_point.x + dx, current_point.y + dy)
-                    # Check boundaries and overlaps
-                    if (0 <= next_point.x < self.w and
-                        0 <= next_point.y < self.h - BB_HEIGHT and
-                        all(not next_point == obs for obs in self.obstacles) and
-                        not any(next_point == p for p in shape)):
-                        # Ensure it's outside the SAFE_RADIUS
-                        if (next_point.distance_to(self.player.pos) < SAFE_RADIUS or
-                            next_point.distance_to(self.enemy.pos) < SAFE_RADIUS):
-                            continue
-                        shape.append(next_point)
-                        current_point = next_point
+                    candidate = pygame.Vector2(current.x + dx, current.y + dy)
+                    if self._is_valid_obstacle_tile(candidate, shape):
+                        shape.append(candidate)
+                        current = candidate
+                        extended = True
                         break
-                else:
-                    # Cannot find a valid extension, stop building the shape
+                if not extended:
                     break
-
             self.obstacles.extend(shape)
 
-    def _handle_projectiles(self):
-        """Update projectile positions and check for collisions."""
-        new_projectiles = []
-        for proj in self.projectiles:
-            proj['pos'] += proj['velocity']
-            proj_rect = pygame.Rect(proj['pos'].x - 5, proj['pos'].y - 5, 10, 10)
-            if is_collision(self, proj_rect):
-                continue  # Projectile is destroyed upon collision
-            # Check if projectile hits an agent
-            target_agent = self.player if proj['owner'] == 'enemy' else self.enemy
-            if target_agent.alive:
-                agent_rect = pygame.Rect(
-                    target_agent.pos.x - BLOCK_SIZE // 2,
-                    target_agent.pos.y - BLOCK_SIZE // 2,
-                    BLOCK_SIZE,
-                    BLOCK_SIZE
-                )
-                if proj_rect.colliderect(agent_rect):
-                    target_agent.alive = False  # Agent is eliminated
-                    continue  # Projectile is destroyed upon hitting the agent
-            new_projectiles.append(proj)
-        self.projectiles = new_projectiles
+    def _sample_valid_obstacle_start(self):
+        for _ in range(100):
+            x = random.randint(0, (self.width - TILE_SIZE) // TILE_SIZE) * TILE_SIZE
+            y = random.randint(0, (self.height - BOTTOM_BAR_HEIGHT - TILE_SIZE) // TILE_SIZE) * TILE_SIZE
+            point = pygame.Vector2(x, y)
+            if self._is_valid_obstacle_tile(point, []):
+                return point
+        return None
 
-    def _enemy_actions(self):
-        """Handle enemy actions based on the current level."""
-        if not self.enemy.alive:
+    def _is_valid_obstacle_tile(self, tile: pygame.Vector2, pending_tiles):
+        if not (0 <= tile.x < self.width and 0 <= tile.y < self.height - BOTTOM_BAR_HEIGHT):
+            return False
+        if any(tile == existing for existing in self.obstacles) or any(tile == existing for existing in pending_tiles):
+            return False
+        if tile.distance_to(self.player.position) < SAFE_RADIUS or tile.distance_to(self.enemy.position) < SAFE_RADIUS:
+            return False
+        return True
+
+    def _step_enemy(self):
+        if not self.enemy.is_alive:
             return
 
-        # Call the appropriate enemy behavior function
-        self.enemy_behavior()
-
-    # Enemy behavior functions for each level
-
-    def _enemy_behavior_level1(self):
-        """Level 1 Enemy Behavior: Shoots straight without rotating or moving."""
-        self.enemy.angle = 180  # Facing left
-        if self.enemy_shooting and self.enemy.cooldown == 0:
-            projectile = self.enemy.shoot()
-            if projectile:
-                self.projectiles.append(projectile)
-        else:
-            self.enemy.decrement_cooldown()
-
-    def _enemy_behavior_level2(self):
-        """Level 2 Enemy Behavior: Rotates towards player (±15° error) and shoots."""
-        # Rotate towards player with some error
-        vector_to_player = self.player.pos - self.enemy.pos
-        angle_to_player = math.degrees(math.atan2(vector_to_player.y, vector_to_player.x)) % 360
-
-        # Introduce aiming error
-        aim_error = random.choice([-15, 0, 15])  # 1/3 chance for each
+        to_player = self.player.position - self.enemy.position
+        angle_to_player = math.degrees(math.atan2(to_player.y, to_player.x)) % 360
+        aim_error = random.choice(self.enemy_shot_error_choices)
         self.enemy.angle = (angle_to_player + aim_error) % 360
 
-        if self.enemy_shooting and self.enemy.cooldown == 0:
+        if self.enemy_can_move and random.random() < self.enemy_move_probability:
+            movement = self.enemy.step_movement(True, False, False, False)
+            self._update_actor_position(self.enemy, movement)
+
+        if random.random() < 0.08:
             projectile = self.enemy.shoot()
             if projectile:
                 self.projectiles.append(projectile)
-        else:
-            self.enemy.decrement_cooldown()
 
-    def _enemy_behavior_level3(self):
-        """Level 3 Enemy Behavior: Moves towards player, rotates (±15° error), and shoots."""
-        if self.enemy_state == 'idle':
-            # Decide to move towards player
-            self.enemy_state = 'move'
-            self.enemy_state_counter = 25  # Move for 25 frames
-        elif self.enemy_state == 'move':
-            # Move towards player
-            move_forward = True
-            move_backward = rotate_left = rotate_right = False
+    def _step_projectiles(self):
+        """Advance projectiles and return event flags used by reward logic."""
+        events = {"enemy_hit": False, "player_hit": False}
+        next_projectiles = []
 
-            # Calculate angle towards player
-            vector_to_player = self.player.pos - self.enemy.pos
-            angle_to_player = math.degrees(math.atan2(vector_to_player.y, vector_to_player.x)) % 360
-            self.enemy.angle = angle_to_player
-
-            # Move enemy
-            movement = self.enemy.move(move_forward, move_backward, rotate_left, rotate_right)
-            self._update_agent_position(self.enemy, movement)
-
-            self.enemy_state_counter -= 1
-            if self.enemy_state_counter <= 0:
-                self.enemy_state = 'attack'
-        elif self.enemy_state == 'attack':
-            # Rotate towards player and shoot
-            vector_to_player = self.player.pos - self.enemy.pos
-            angle_to_player = math.degrees(math.atan2(vector_to_player.y, vector_to_player.x)) % 360
-
-            # Introduce aiming error
-            aim_error = random.choice([-15, 0, 15])  # 1/3 chance for each
-            self.enemy.angle = (angle_to_player + aim_error) % 360
-
-            if self.enemy_shooting and self.enemy.cooldown == 0:
-                projectile = self.enemy.shoot()
-                if projectile:
-                    self.projectiles.append(projectile)
-                self.enemy_state = 'idle'  # Reset state after attack
-            else:
-                self.enemy.decrement_cooldown()
-
-    def _get_closest_projectile(self):
-        """Return the closest enemy projectile."""
-        projectiles = [proj for proj in self.projectiles if proj['owner'] == 'enemy']
-        if not projectiles:
-            return None
-        player_pos = self.player.pos
-        closest_proj = min(projectiles, key=lambda proj: player_pos.distance_to(proj['pos']))
-        return closest_proj
-
-    def _is_in_projectile_trajectory(self):
-        """Check if the player is in the direct trajectory of any enemy projectile."""
-        for proj in self.projectiles:
-            if proj['owner'] == 'enemy':
-                # Projectile's current position and velocity
-                proj_pos = proj['pos']
-                proj_vel = proj['velocity']
-
-                # Vector from projectile to player
-                vector_to_player = self.player.pos - proj_pos
-
-                # Normalize vectors
-                proj_direction = proj_vel.normalize()
-                vector_to_player_norm = vector_to_player.normalize()
-
-                # Angle between projectile's direction and vector to player
-                angle_between = proj_direction.angle_to(vector_to_player_norm)
-
-                # If the angle is small, the player is in the trajectory
-                if abs(angle_between) < 5:  # Threshold angle in degrees
-                    # Check if the projectile is moving towards the player
-                    if proj_direction.dot(vector_to_player_norm) > 0:
-                        return True
-        return False
-
-    def _get_obstacle_distances(self):
-        """
-        Calculate distances to the nearest obstacles in 8 directions (45-degree increments)
-        relative to the player's facing direction (self.angle).
-        """
-        distances = [float('inf')] * 8  # Initialize distances with infinity
-        player_pos = self.player.pos
-        player_angle = self.player.angle  # The player's current facing angle in degrees
-
-        # Define 8 directional vectors for cones (relative to 0 degrees)
-        directions = [
-            pygame.Vector2(1, 0),  # 0 degrees
-            pygame.Vector2(1, 1).normalize(),  # 45 degrees
-            pygame.Vector2(0, 1),  # 90 degrees
-            pygame.Vector2(-1, 1).normalize(),  # 135 degrees
-            pygame.Vector2(-1, 0),  # 180 degrees
-            pygame.Vector2(-1, -1).normalize(),  # 225 degrees
-            pygame.Vector2(0, -1),  # 270 degrees
-            pygame.Vector2(1, -1).normalize()   # 315 degrees
-        ]
-
-        # Rotate the directions based on the player's facing angle
-        rotated_directions = []
-        for direction in directions:
-            rotated_dir = direction.rotate(player_angle)  # Rotate by player angle
-            rotated_directions.append(rotated_dir)
-
-        # Iterate over obstacles and find the closest ones in each cone
-        for obs in self.obstacles:
-            obs_vector = obs - player_pos  # Vector from player to obstacle
-            obs_distance = obs_vector.length()  # Calculate distance to the obstacle
-            if obs_distance == 0:  # Skip if the obstacle is at the player's position
+        for projectile in self.projectiles:
+            projectile["pos"] += projectile["velocity"]
+            projectile_rect = pygame.Rect(projectile["pos"].x - 5, projectile["pos"].y - 5, 10, 10)
+            if is_collision(self, projectile_rect):
                 continue
 
-            # Calculate the angle between the player and the obstacle
-            obs_angle = (math.degrees(math.atan2(obs_vector.y, obs_vector.x)) % 360)
+            target = self.player if projectile["owner"] == "enemy" else self.enemy
+            if target.is_alive:
+                target_rect = pygame.Rect(target.position.x - TILE_SIZE // 2, target.position.y - TILE_SIZE // 2, TILE_SIZE, TILE_SIZE)
+                if projectile_rect.colliderect(target_rect):
+                    target.is_alive = False
+                    events["player_hit" if target is self.player else "enemy_hit"] = True
+                    continue
 
-            # Calculate the relative angle difference between the obstacle's angle and the rotated directions
-            angle_diffs = []
-            for direction in rotated_directions:
-                # Get the angle of the direction in degrees
-                direction_angle = math.degrees(math.atan2(direction.y, direction.x)) % 360
-                angle_diff = min(abs(obs_angle - direction_angle), 360 - abs(obs_angle - direction_angle))
-                angle_diffs.append(angle_diff)
+            next_projectiles.append(projectile)
 
-            # Find the closest direction by checking the smallest angle difference
-            closest_direction_index = angle_diffs.index(min(angle_diffs))
-            distances[closest_direction_index] = min(distances[closest_direction_index], obs_distance)
+        self.projectiles = next_projectiles
+        return events
 
-        # Normalize distances to screen diagonal
-        max_distance = math.hypot(self.w, self.h)
-        return [d / max_distance if d != float('inf') else -1.0 for d in distances]  # Return normalized distances
+    def _distance_to_closest_enemy_projectile(self):
+        enemy_projectiles = [p for p in self.projectiles if p["owner"] == "enemy"]
+        if not enemy_projectiles:
+            return None
+        return min(enemy_projectiles, key=lambda p: self.player.position.distance_to(p["pos"]))
 
-    def _is_line_of_sight(self):
-        """Check if the enemy is within line of sight and aligned with the player's facing direction."""
-        # Calculate the vector from the player to the enemy
-        vector_to_enemy = self.enemy.pos - self.player.pos
-        if vector_to_enemy.length() == 0:
-            return False  # Same position, unlikely but handle it
+    def is_player_in_projectile_trajectory(self) -> bool:
+        for projectile in self.projectiles:
+            if projectile["owner"] != "enemy":
+                continue
+            to_player = self.player.position - projectile["pos"]
+            if to_player.length_squared() == 0:
+                return True
+            projectile_dir = projectile["velocity"].normalize()
+            if projectile_dir.dot(to_player.normalize()) > 0.98:
+                return True
+        return False
 
-        # Calculate the angle between the player's facing direction and the vector to the enemy
-        player_facing_vector = pygame.Vector2(
-            math.cos(math.radians(self.player.angle)),
-            math.sin(math.radians(self.player.angle))
-        )
+    def has_line_of_sight(self) -> bool:
+        to_enemy = self.enemy.position - self.player.position
+        if to_enemy.length_squared() == 0:
+            return True
+        enemy_angle = math.degrees(math.atan2(to_enemy.y, to_enemy.x))
+        relative = normalize_angle_degrees(enemy_angle - self.player.angle)
+        return abs(relative) <= AIM_TOLERANCE_DEGREES and not is_obstacle_between(self, self.player.position, self.enemy.position)
 
-        angle_between = player_facing_vector.angle_to(vector_to_enemy)
+    def _obstacle_distances_by_octant(self):
+        distances = [float("inf")] * 8
+        directions = [
+            pygame.Vector2(1, 0),
+            pygame.Vector2(1, 1).normalize(),
+            pygame.Vector2(0, 1),
+            pygame.Vector2(-1, 1).normalize(),
+            pygame.Vector2(-1, 0),
+            pygame.Vector2(-1, -1).normalize(),
+            pygame.Vector2(0, -1),
+            pygame.Vector2(1, -1).normalize(),
+        ]
+        rotated = [d.rotate(self.player.angle) for d in directions]
 
-        # Check if the enemy is within the ±ALIGNMENT_TOLERANCE°
-        if abs(angle_between) <= ALIGNMENT_TOLERANCE:
-            # Check if there are no obstacles between the player and the enemy
-            if not is_obstacle_between(self, self.player.pos, self.enemy.pos):
-                return True  # LOS is clear and enemy is aligned
-        return False  # No LOS or enemy is not aligned
+        for obstacle in self.obstacles:
+            offset = obstacle - self.player.position
+            distance = offset.length()
+            if distance == 0:
+                continue
+            obstacle_angle = math.degrees(math.atan2(offset.y, offset.x)) % 360
+            diffs = [min(abs(obstacle_angle - math.degrees(math.atan2(d.y, d.x)) % 360), 360 - abs(obstacle_angle - math.degrees(math.atan2(d.y, d.x)) % 360)) for d in rotated]
+            bucket = min(range(len(diffs)), key=lambda idx: diffs[idx])
+            distances[bucket] = min(distances[bucket], distance)
 
-    def get_state(self):
-        """Get the current state representation for the AI agent."""
-        # Obstacle distances (8 features)
-        obstacle_distances = self._get_obstacle_distances()
+        max_distance = math.hypot(self.width, self.height)
+        return [d / max_distance if d != float("inf") else -1.0 for d in distances]
 
-        # Enemy features
-        enemy_distance = self.player.pos.distance_to(self.enemy.pos) / max(self.w, self.h)
-        vector_to_enemy = self.enemy.pos - self.player.pos
-        enemy_angle = math.degrees(math.atan2(vector_to_enemy.y, vector_to_enemy.x)) % 360
-        relative_enemy_angle = ((enemy_angle - self.player.angle + 180) % 360) - 180
+    def get_state_vector(self):
+        obstacle_distances = self._obstacle_distances_by_octant()
 
-        # Projectile features
-        closest_projectile = self._get_closest_projectile()
+        to_enemy = self.enemy.position - self.player.position
+        enemy_distance = self.player.position.distance_to(self.enemy.position) / max(self.width, self.height)
+        enemy_angle = math.degrees(math.atan2(to_enemy.y, to_enemy.x))
+        enemy_angle_relative = normalize_angle_degrees(enemy_angle - self.player.angle) / 180.0
+
+        closest_projectile = self._distance_to_closest_enemy_projectile()
         if closest_projectile:
-            proj_distance = self.player.pos.distance_to(closest_projectile['pos']) / max(self.w, self.h)
-            vector_to_proj = closest_projectile['pos'] - self.player.pos
-            proj_angle = math.degrees(math.atan2(vector_to_proj.y, vector_to_proj.x)) % 360
-            relative_proj_angle = ((proj_angle - self.player.angle + 180) % 360) - 180
+            projectile_distance = self.player.position.distance_to(closest_projectile["pos"]) / max(self.width, self.height)
+            to_projectile = closest_projectile["pos"] - self.player.position
+            projectile_angle = math.degrees(math.atan2(to_projectile.y, to_projectile.x))
+            projectile_angle_relative = normalize_angle_degrees(projectile_angle - self.player.angle) / 180.0
         else:
-            proj_distance = -1.0
-            relative_proj_angle = 0.0
+            projectile_distance = -1.0
+            projectile_angle_relative = 0.0
 
-        # Position features (2 features)
-        x_position = self.player.pos.x / self.w  # Normalize to [0, 1]
-        y_position = self.player.pos.y / self.h  # Normalize to [0, 1]
+        x_position = self.player.position.x / self.width
+        y_position = self.player.position.y / self.height
 
-        # Booleans (In Projectile Trajectory, Line of Sight)
-        ipt = 1 if self._is_in_projectile_trajectory() else 0
-        los = 1 if self._is_line_of_sight() else 0
-
-        # Combine all features
-        state = (
-            obstacle_distances +                        # 8 features
-            [enemy_distance, relative_enemy_angle / 180] +  # 2 features
-            [proj_distance, relative_proj_angle / 180] +    # 2 features
-            [x_position, y_position] +                      # 2 features (position)
-            [ipt, los]                                      # 2 features (booleans)
-        )
-
+        state = obstacle_distances + [
+            enemy_distance,
+            enemy_angle_relative,
+            projectile_distance,
+            projectile_angle_relative,
+            x_position,
+            y_position,
+            1.0 if self.is_player_in_projectile_trajectory() else 0.0,
+            1.0 if self.has_line_of_sight() else 0.0,
+        ]
         return state
 
-    def print_state(self):
-        """Print the current state for debugging purposes."""
-        print(f"State: {', '.join(f'{x:.2f}' for x in self.get_state())}")
-
     def play_step(self, action):
-        """Execute one game step based on the action taken."""
-        pass  # To be implemented in subclasses
+        raise NotImplementedError
