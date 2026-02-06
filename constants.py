@@ -1,95 +1,70 @@
-##################################################
-# CONSTANTS
-##################################################
+"""Configuration values for the Bang RL project."""
 
-# Screen and Grid Dimensions
-GRID_SIZE_X = 32          # Number of tiles horizontally
-GRID_SIZE_Y = 24          # Number of tiles vertically
-BLOCK_SIZE = 20           # Size of each grid tile
-BB_HEIGHT = 30            # Bottom Bar height
-BB_MARGIN = 20            # Margin for the bottom bar
-SCREEN_WIDTH = GRID_SIZE_X * BLOCK_SIZE
-SCREEN_HEIGHT = GRID_SIZE_Y * BLOCK_SIZE + BB_HEIGHT
+# Arena dimensions
+GRID_WIDTH_TILES = 32
+GRID_HEIGHT_TILES = 24
+TILE_SIZE = 20
+BOTTOM_BAR_HEIGHT = 30
+BOTTOM_BAR_MARGIN = 20
+SCREEN_WIDTH = GRID_WIDTH_TILES * TILE_SIZE
+SCREEN_HEIGHT = GRID_HEIGHT_TILES * TILE_SIZE + BOTTOM_BAR_HEIGHT
 
-# Game Speed
-FPS = 60                  # Frames per second for the game
-AI_FPS = 120              # Frames per second for the AI game (if applicable)
+# Runtime options
+FPS = 60
+TRAINING_FPS = 0  # 0 lets pygame run unlocked for faster headless training
+SHOW_GAME = False
+PLOT_TRAINING = False
+USE_GPU = False
 
 # Colors
-COLOR_LEFT_TEAM = (30, 100, 100)         # Dark Teal for left team (player)
-COLOR_LEFT_TEAM_OUTLINE = (50, 215, 200) # Turquoise outline for left team
-COLOR_RIGHT_TEAM = (125, 45, 45)         # Dark Red for right team (enemy)
-COLOR_RIGHT_TEAM_OUTLINE = (240, 95, 95) # Red Orange outline for right team
+COLOR_PLAYER = (30, 100, 100)
+COLOR_PLAYER_OUTLINE = (50, 215, 200)
+COLOR_ENEMY = (125, 45, 45)
+COLOR_ENEMY_OUTLINE = (240, 95, 95)
 COLOR_OBSTACLE_OUTLINE = (125, 125, 125)
-COLOR_OBSTACLE_PRIMARY = (45, 45, 45)    # Same as COLOR_BACKGROUND or desired fill color
-COLOR_PROJECTILE = (235, 195, 50)        # Yellow for projectiles
-COLOR_BACKGROUND = (45, 45, 45)          # Dark Grey
-COLOR_SCORE = (255, 255, 255)            # White for score display
+COLOR_OBSTACLE_FILL = (45, 45, 45)
+COLOR_PROJECTILE = (235, 195, 50)
+COLOR_BACKGROUND = (45, 45, 45)
+COLOR_SCORE = (255, 255, 255)
 
-# Game Constants
-PLAYER_SPEED = 5           # Movement speed of the player (pixels per frame)
-ROTATION_SPEED = 5         # Rotation angle in degrees per action
-PROJECTILE_SPEED = 10      # Speed of projectiles (pixels per frame)
-SHOOT_COOLDOWN = 30        # Frames until the player can shoot again
-ALIGNMENT_TOLERANCE = 10
 
-# Enemy Constants (Adjusted for Curriculum)
-ENEMY_STATIONARY = True  # Initially stationary
-ENEMY_SHOOTING = False   # Initially not shooting
-ENEMY_MOVE_PROBABILITY = 0.0  # No movement initially
-ENEMY_SHOOT_COOLDOWN = SHOOT_COOLDOWN * 3  # Adjusted for curriculum
+# Legacy color aliases (kept so UI colors match the original project naming)
+COLOR_LEFT_TEAM = COLOR_PLAYER
+COLOR_LEFT_TEAM_OUTLINE = COLOR_PLAYER_OUTLINE
+COLOR_RIGHT_TEAM = COLOR_ENEMY
+COLOR_RIGHT_TEAM_OUTLINE = COLOR_ENEMY_OUTLINE
+COLOR_OBSTACLE_PRIMARY = COLOR_OBSTACLE_FILL
 
-# Curriculum Levels
-STARTING_LEVEL = 1  # Starting level for the game (1, 2, or 3)
-LEVEL_UP_GAMES = 2000  # Number of games after which the level increases
-MAX_LEVEL = 3  # Maximum level achievable
+# Gameplay tuning
+PLAYER_MOVE_SPEED = 5
+PLAYER_ROTATION_DEGREES = 5
+PROJECTILE_SPEED = 10
+SHOOT_COOLDOWN_FRAMES = 30
+AIM_TOLERANCE_DEGREES = 10
+MAX_EPISODE_STEPS = 1200
 
-# Obstacle Constants
-NUM_OBSTACLES = 4         # Starting with 4 obstacles
-MIN_SECTIONS = 2          # Minimum number of sections for obstacles
-MAX_SECTIONS = 5          # Maximum number of sections for obstacles
-SAFE_RADIUS = 100         # Minimum distance from players in pixels
-SPAWN_Y_OFFSET = 80       # Adjust this value to control the range of vertical displacement
+# Enemy behavior / curriculum
+STARTING_LEVEL = 1
+MAX_LEVEL = 3
+MIN_EPISODES_PER_LEVEL = 300
+LEVEL_UP_AVG_REWARD = {2: 10.0, 3: 25.0}  # target Avg100 needed to enter each level
+DEFAULT_OBSTACLES = 8
+SPAWN_Y_OFFSET = 80
+SAFE_RADIUS = 100
+MIN_OBSTACLE_SECTIONS = 2
+MAX_OBSTACLE_SECTIONS = 5
 
-# Font
-FONT_SIZE = 24             # Font size for text displays
+# Rendering
+FONT_SIZE = 24
 
-# Model Constants
-MODEL_SAVE_PREFIX = 'model/bang'     # Prefix tag for saving models
-LOAD_PREVIOUS_MODEL = False     # Start training from a saved model if True
+# Model and training
+MODEL_CHECKPOINT_PATH = "model/bang_dqn.pth"
+MODEL_BEST_PATH = "model/bang_dqn_best.pth"
+LOAD_PREVIOUS_MODEL = False
 
-# Toggle for training plots
-PLOT_TRAIN = False
-USE_GPU = False
-SHOW_GAME = False  # Set to True to display the game window during training
+NUM_INPUT_FEATURES = 16
+NUM_ACTIONS = 6
 
-# Agent Hyperparameters
-MAX_MEMORY = 100_000    # Maximum size of the replay memory
-BATCH_SIZE = 1024       # Number of samples per training batch
-LR = 0.0005             # Learning rate for the optimizer
-HIDDEN_LAYERS = [128, 64, 32]
-
-GAMMA = 0.95            # Discount factor for future rewards
-L2_LAMBDA = 0.001       # Weight Decay / 0 = off
-DROPOUT_RATE = 0.2      # Dropout Rate / 0 = off
-
-# Epsilon Parameters for Exploration
-EPSILON_START = 1         # Initial exploration rate
-EPSILON_DECAY = 0.999995  # Decay rate for exploration
-EPSILON_MIN = 0.05        # Minimum exploration rate
-
-# Parameters for RL
-MAX_MATCH_DURATION = 1000   # Maximum number of frames per match
-
-# Reward Constants
-WIN_REWARD = 100
-LOSS_PENALTY = -100
-TIME_PENALTY = -0.1              # Time penalty per frame
-APPROACH_REWARD_FACTOR = 0.1     # Reward per unit distance closer to enemy
-AIM_REWARD = 0.5                  # Reward for aligning aim towards enemy
-SHOOT_REWARD = 1                  # Reward for shooting when enemy is in sight
-
-# Action Space Indices
 ACTION_MOVE_FORWARD = 0
 ACTION_MOVE_BACKWARD = 1
 ACTION_TURN_LEFT = 2
@@ -97,10 +72,30 @@ ACTION_TURN_RIGHT = 3
 ACTION_SHOOT = 4
 ACTION_WAIT = 5
 
-NUM_ACTIONS = 6  # Total number of actions
+REPLAY_BUFFER_SIZE = 150_000
+BATCH_SIZE = 512
+LEARNING_RATE = 3e-4
+WEIGHT_DECAY = 1e-5
+GAMMA = 0.98
 
-# Number of inputs
-NUM_INPUTS = 16  # Adjusted total number of inputs (with 8 obstacle distances)
+EPSILON_START = 1.0
+EPSILON_MIN = 0.05
+EPSILON_DECAY_PER_EPISODE = 0.995
+EPSILON_BOOST_ON_LEVEL_UP = 0.20
+TARGET_SYNC_EVERY = 500
+GRAD_CLIP_NORM = 10.0
 
-# Activation Function
-ACTIVATION_FUNCTION = 'ReLU'  # Use the best activation function
+HIDDEN_DIMENSIONS = [128, 128, 64]
+DROPOUT_RATE = 0.1
+
+# Reward shaping
+REWARD_HIT_ENEMY = 40.0
+REWARD_WIN_ROUND = 120.0
+PENALTY_GOT_HIT = -50.0
+PENALTY_LOSE_ROUND = -120.0
+REWARD_AIMING = 0.2
+REWARD_APPROACH_ENEMY_SCALE = 0.05
+PENALTY_TIME_STEP = -0.02
+PENALTY_BAD_SHOT = -0.15
+REWARD_GOOD_SHOT = 1.0
+REWARD_DODGE_PROJECTILE = 0.08
