@@ -25,7 +25,6 @@ A plain linear Q model can work for very simple environments, but this TPS setup
 
 The implementation is still intentionally compact so it remains understandable for RL learners.
 
-
 ### Training schedule details
 
 - Epsilon now decays **per episode** (not per frame), which keeps exploration high for longer early training.
