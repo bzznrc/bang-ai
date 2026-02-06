@@ -7,12 +7,14 @@ signals.
 """
 
 import copy
+import os
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 
-from constants import DROPOUT_RATE, GAMMA, GRAD_CLIP_NORM, LEARNING_RATE, WEIGHT_DECAY
+from constants import GAMMA, GRAD_CLIP_NORM, LEARNING_RATE, WEIGHT_DECAY
 from utils import get_device
 
 
@@ -29,9 +31,7 @@ class DuelingQNetwork(nn.Module):
         for hidden in hidden_sizes:
             layers.extend([
                 nn.Linear(in_features, hidden),
-                nn.LayerNorm(hidden),
                 nn.GELU(),
-                nn.Dropout(DROPOUT_RATE),
             ])
             in_features = hidden
 
@@ -51,6 +51,7 @@ class DuelingQNetwork(nn.Module):
         return copy.deepcopy(self)
 
     def save(self, file_name: str):
+        os.makedirs(os.path.dirname(file_name), exist_ok=True)
         torch.save(self.state_dict(), file_name)
 
     def load(self, file_name: str):
@@ -64,14 +65,16 @@ class DQNTrainer:
         self.online_model = online_model
         self.target_model = target_model
         self.optimizer = optim.AdamW(online_model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-        self.loss_fn = nn.SmoothL1Loss()
+        self.loss_fn = nn.SmoothL1Loss(reduction="none")
 
-    def train_step(self, state, action, reward, next_state, done):
+    def train_step(self, state, action, reward, next_state, done, is_weights=None):
         state = torch.as_tensor(state, dtype=torch.float32, device=device)
         next_state = torch.as_tensor(next_state, dtype=torch.float32, device=device)
         action = torch.as_tensor(action, dtype=torch.long, device=device)
         reward = torch.as_tensor(reward, dtype=torch.float32, device=device)
         done = torch.as_tensor(done, dtype=torch.bool, device=device)
+        if is_weights is not None:
+            is_weights = torch.as_tensor(is_weights, dtype=torch.float32, device=device)
 
         if state.dim() == 1:
             state = state.unsqueeze(0)
@@ -79,6 +82,8 @@ class DQNTrainer:
             action = action.unsqueeze(0)
             reward = reward.unsqueeze(0)
             done = done.unsqueeze(0)
+            if is_weights is not None:
+                is_weights = is_weights.unsqueeze(0)
 
         action_indices = action.argmax(dim=1)
         current_q = self.online_model(state).gather(1, action_indices.unsqueeze(1)).squeeze(1)
@@ -88,9 +93,13 @@ class DQNTrainer:
             next_q = self.target_model(next_state).gather(1, next_actions.unsqueeze(1)).squeeze(1)
             targets = reward + (~done).float() * GAMMA * next_q
 
-        loss = self.loss_fn(current_q, targets)
+        td_errors = targets - current_q
+        per_sample_loss = self.loss_fn(current_q, targets)
+        if is_weights is not None:
+            per_sample_loss = per_sample_loss * is_weights
+        loss = per_sample_loss.mean()
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.online_model.parameters(), GRAD_CLIP_NORM)
         self.optimizer.step()
-        return float(loss.item())
+        return float(loss.item()), td_errors.detach().abs().cpu().tolist()

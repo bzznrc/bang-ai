@@ -1,44 +1,43 @@
 # Bang AI - Reinforcement Learning TPS
 
-A compact third-person-shooter style arena for training and testing an RL bot.
+Bang AI is a compact top-down arena shooter used to train and evaluate a DQN-based agent. The project is intentionally small so you can trace the full loop from environment state to action selection to reward shaping.
 
-## Naming approach
+**What this project contains**
+- A lightweight 2D arena shooter with obstacles, projectiles, and two agents.
+- A training environment that exposes a 16-feature state vector and reward shaping.
+- A dueling Double-DQN with a target network and prioritized replay.
+- Scripts to train, evaluate, and play manually.
 
-The project keeps `game_` prefixes for gameplay modules where it helps discovery, while RL-specific modules keep standard names:
+**Project layout**
+- `game.py` core arena simulation and physics
+- `game_agent.py` player and enemy agent logic
+- `game_ai_env.py` RL wrapper with state vector and reward shaping
+- `rl_model.py` dueling network and trainer
+- `train_ai.py` replay-buffer training loop and checkpoints
+- `play_ai.py` run inference using a trained checkpoint
+- `play_human.py` manual control for debugging and sanity checks
+- `ui.py` rendering utilities
+- `constants.py` all hyperparameters and tuning knobs
 
-- `game.py` → `BaseGame`
-- `game_ai_env.py` → `TrainingGame`
-- `play_human.py` → `HumanGame`
-- `play_ai.py` → `GameModelRunner`
-- `game_agent.py` → `Actor`
-- `ui.py` → `Renderer`
-- `rl_model.py` → `DuelingQNetwork`, `DQNTrainer`
-- `train_ai.py` → `DQNAgent`
-
-## Why DQN (dueling + target network) instead of a simple LinearQNet
-
-A plain linear Q model can work for very simple environments, but this TPS setup has rotating aim, moving projectiles, and partial observability from compact inputs. A deeper DQN is a better fit because:
-
-- it learns non-linear relationships between state features (for example, aim + obstacle context + projectile threat),
-- it separates state-value and action-advantage estimates (dueling head), which often improves action ranking stability,
-- it uses a target network and Double-DQN update to reduce overestimation and unstable learning.
-
-The implementation is still intentionally compact so it remains understandable for RL learners.
-
-## State (16 inputs)
-
-- 8 obstacle distance bins around the player
-- enemy distance
-- enemy relative angle
-- nearest enemy projectile distance
-- nearest enemy projectile relative angle
-- player normalized X
-- player normalized Y
-- in projectile trajectory (0/1)
+**State (16 inputs)**
+- enemy distance (normalized)
+- enemy relative angle (sin)
+- enemy relative angle (cos)
+- Δ enemy distance
+- Δ enemy relative angle
 - enemy in line-of-sight (0/1)
+- nearest projectile distance (normalized, or -1 if none)
+- nearest projectile relative angle (sin)
+- nearest projectile relative angle (cos)
+- Δ projectile distance
+- in projectile trajectory (0/1)
+- forward blocked (0/1)
+- left blocked (0/1)
+- right blocked (0/1)
+- last action index (normalized)
+- time since last shot (normalized)
 
-## Action space (6 outputs)
-
+**Action space (6 outputs)**
 - Move Forward
 - Move Backward
 - Turn Left
@@ -46,37 +45,48 @@ The implementation is still intentionally compact so it remains understandable f
 - Shoot
 - Wait
 
-## What to launch
+**Model and training**
+The agent uses a dueling architecture with Double-DQN targets, a target network sync, and prioritized experience replay (PER). The network outputs Q-values for each action, and the replay buffer stabilizes learning.
 
-### 1) Train a new model
+Key training knobs live in `constants.py`, including:
+- `HIDDEN_DIMENSIONS`, `BATCH_SIZE`, `LEARNING_RATE`, `GAMMA`
+- `REPLAY_BUFFER_SIZE`, `TARGET_SYNC_EVERY`, epsilon schedule values
 
+**How to run**
+1. Train a new model
 ```bash
 python train_ai.py
 ```
 
-Saves periodic checkpoints to:
+Checkpoints:
+- `model/64_32/bang_dqn.pth`
+- `model/64_32/bang_dqn_best.pth`
 
-- `model/bang_dqn.pth`
-- `model/bang_dqn_best.pth`
-
-### 2) Try the current trained model
-
+2. Run the trained model
 ```bash
 python play_ai.py
 ```
 
-Runs greedy inference with the latest checkpoint and prints win rate.
-
-### 3) Play as a human (manual test)
-
+3. Play manually
 ```bash
 python play_human.py
 ```
 
 Controls:
+- `W` move forward
+- `S` move backward
+- `A` turn left
+- `D` turn right
+- `Space` shoot
 
-- `W`: move forward
-- `S`: move backward
-- `A`: turn left
-- `D`: turn right
-- `Space`: shoot
+**Rewards (current)**
+- win: `+10`
+- lose: `-10`
+- hit enemy: `+2`
+- time step: `-0.02`
+- bad shot (no LOS): `-0.1`
+- blocked move: `-0.1`
+
+**Notes**
+- Training runs headless by default. Toggle `SHOW_GAME` or `PLOT_TRAINING` in `constants.py` as needed.
+- Input/output definitions live in `constants.py` (`INPUT_FEATURE_NAMES`, `ACTION_NAMES`).

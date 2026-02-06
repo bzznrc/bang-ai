@@ -5,26 +5,7 @@ import random
 
 import pygame
 
-from constants import (
-    ACTION_MOVE_BACKWARD,
-    ACTION_MOVE_FORWARD,
-    ACTION_SHOOT,
-    ACTION_TURN_LEFT,
-    ACTION_TURN_RIGHT,
-    ACTION_WAIT,
-    AIM_TOLERANCE_DEGREES,
-    BOTTOM_BAR_HEIGHT,
-    DEFAULT_OBSTACLES,
-    MAX_OBSTACLE_SECTIONS,
-    MAX_LEVEL,
-    MIN_OBSTACLE_SECTIONS,
-    SAFE_RADIUS,
-    SCREEN_HEIGHT,
-    SCREEN_WIDTH,
-    SHOW_GAME,
-    SPAWN_Y_OFFSET,
-    TILE_SIZE,
-)
+from constants import *
 from game_agent import Actor
 from ui import Renderer
 from utils import is_collision, is_obstacle_between, normalize_angle_degrees
@@ -53,29 +34,20 @@ class BaseGame:
 
     def configure_level(self):
         """Configure enemy complexity and obstacle density."""
-        level = max(1, min(self.level, MAX_LEVEL))
-        if level == 1:
-            self.num_obstacles = 4
-            self.enemy_can_move = False
-            self.enemy_shot_error_choices = [-20, -10, 0, 10, 20]
-        elif level == 2:
-            self.num_obstacles = 8
-            self.enemy_can_move = True
-            self.enemy_shot_error_choices = [-12, -6, 0, 6, 12]
-        else:
-            self.num_obstacles = 12
-            self.enemy_can_move = True
-            self.enemy_shot_error_choices = [-8, -4, 0, 4, 8]
+        level = max(MIN_LEVEL, min(self.level, MAX_LEVEL))
+        settings = LEVEL_SETTINGS.get(level) or LEVEL_SETTINGS.get(MAX_LEVEL, {})
 
-        self.enemy_move_probability = 0.04 * level
-        self.num_obstacles = self.num_obstacles or DEFAULT_OBSTACLES
+        self.num_obstacles = settings.get("num_obstacles", DEFAULT_OBSTACLES) or DEFAULT_OBSTACLES
+        self.enemy_can_move = settings.get("enemy_can_move", True)
+        self.enemy_shot_error_choices = settings.get("enemy_shot_error_choices", [0])
+        self.enemy_move_probability = ENEMY_MOVE_PROBABILITY_SCALE * level
 
     def reset(self):
         player_offset = random.choice([0, SPAWN_Y_OFFSET, -SPAWN_Y_OFFSET])
         enemy_offset = random.choice([0, SPAWN_Y_OFFSET, -SPAWN_Y_OFFSET])
 
-        player_pos = pygame.Vector2(self.width / 8, (self.height / 2 - BOTTOM_BAR_HEIGHT // 2) + player_offset)
-        enemy_pos = pygame.Vector2(7 * self.width / 8, (self.height / 2 - BOTTOM_BAR_HEIGHT // 2) + enemy_offset)
+        player_pos = pygame.Vector2(self.width * PLAYER_SPAWN_X_RATIO, (self.height / 2 - BOTTOM_BAR_HEIGHT // 2) + player_offset)
+        enemy_pos = pygame.Vector2(self.width * ENEMY_SPAWN_X_RATIO, (self.height / 2 - BOTTOM_BAR_HEIGHT // 2) + enemy_offset)
 
         self.player = Actor(player_pos, angle=0, team="player")
         self.enemy = Actor(enemy_pos, angle=180, team="enemy")
@@ -83,9 +55,15 @@ class BaseGame:
         self.obstacles = []
         self.projectiles = []
         self.frame_count = 0
+        self.last_action_index = 0
+        self.frames_since_last_shot = SHOOT_COOLDOWN_FRAMES
+        self.previous_enemy_distance = None
+        self.previous_enemy_relative_angle = None
+        self.previous_projectile_distance = None
         self._place_obstacles()
 
     def apply_player_action(self, action_index: int):
+        self.last_action_index = action_index
         move_forward = action_index == ACTION_MOVE_FORWARD
         move_backward = action_index == ACTION_MOVE_BACKWARD
         rotate_left = action_index == ACTION_TURN_LEFT
@@ -98,6 +76,9 @@ class BaseGame:
             projectile = self.player.shoot()
             if projectile:
                 self.projectiles.append(projectile)
+            self.frames_since_last_shot = 0
+        else:
+            self.frames_since_last_shot += 1
 
     def _update_actor_position(self, actor, movement: pygame.Vector2):
         new_position = actor.position + movement
@@ -112,6 +93,19 @@ class BaseGame:
                 return
 
         actor.position = new_position
+
+    def _would_collide(self, actor, movement: pygame.Vector2) -> bool:
+        new_position = actor.position + movement
+        actor_rect = pygame.Rect(new_position.x - TILE_SIZE // 2, new_position.y - TILE_SIZE // 2, TILE_SIZE, TILE_SIZE)
+        if is_collision(self, actor_rect):
+            return True
+
+        other = self.enemy if actor is self.player else self.player
+        if other.is_alive:
+            other_rect = pygame.Rect(other.position.x - TILE_SIZE // 2, other.position.y - TILE_SIZE // 2, TILE_SIZE, TILE_SIZE)
+            if actor_rect.colliderect(other_rect):
+                return True
+        return False
 
     def _place_obstacles(self):
         self.obstacles = []
@@ -138,7 +132,7 @@ class BaseGame:
             self.obstacles.extend(shape)
 
     def _sample_valid_obstacle_start(self):
-        for _ in range(100):
+        for _ in range(OBSTACLE_START_ATTEMPTS):
             x = random.randint(0, (self.width - TILE_SIZE) // TILE_SIZE) * TILE_SIZE
             y = random.randint(0, (self.height - BOTTOM_BAR_HEIGHT - TILE_SIZE) // TILE_SIZE) * TILE_SIZE
             point = pygame.Vector2(x, y)
@@ -168,7 +162,7 @@ class BaseGame:
             movement = self.enemy.step_movement(True, False, False, False)
             self._update_actor_position(self.enemy, movement)
 
-        if random.random() < 0.08:
+        if random.random() < ENEMY_SHOOT_PROBABILITY:
             projectile = self.enemy.shoot()
             if projectile:
                 self.projectiles.append(projectile)
@@ -180,7 +174,12 @@ class BaseGame:
 
         for projectile in self.projectiles:
             projectile["pos"] += projectile["velocity"]
-            projectile_rect = pygame.Rect(projectile["pos"].x - 5, projectile["pos"].y - 5, 10, 10)
+            projectile_rect = pygame.Rect(
+                projectile["pos"].x - PROJECTILE_HITBOX_HALF,
+                projectile["pos"].y - PROJECTILE_HITBOX_HALF,
+                PROJECTILE_HITBOX_SIZE,
+                PROJECTILE_HITBOX_SIZE,
+            )
             if is_collision(self, projectile_rect):
                 continue
 
@@ -211,7 +210,7 @@ class BaseGame:
             if to_player.length_squared() == 0:
                 return True
             projectile_dir = projectile["velocity"].normalize()
-            if projectile_dir.dot(to_player.normalize()) > 0.98:
+            if projectile_dir.dot(to_player.normalize()) > PROJECTILE_TRAJECTORY_DOT_THRESHOLD:
                 return True
         return False
 
@@ -223,63 +222,76 @@ class BaseGame:
         relative = normalize_angle_degrees(enemy_angle - self.player.angle)
         return abs(relative) <= AIM_TOLERANCE_DEGREES and not is_obstacle_between(self, self.player.position, self.enemy.position)
 
-    def _obstacle_distances_by_octant(self):
-        distances = [float("inf")] * 8
-        directions = [
-            pygame.Vector2(1, 0),
-            pygame.Vector2(1, 1).normalize(),
-            pygame.Vector2(0, 1),
-            pygame.Vector2(-1, 1).normalize(),
-            pygame.Vector2(-1, 0),
-            pygame.Vector2(-1, -1).normalize(),
-            pygame.Vector2(0, -1),
-            pygame.Vector2(1, -1).normalize(),
-        ]
-        rotated = [d.rotate(self.player.angle) for d in directions]
-
-        for obstacle in self.obstacles:
-            offset = obstacle - self.player.position
-            distance = offset.length()
-            if distance == 0:
-                continue
-            obstacle_angle = math.degrees(math.atan2(offset.y, offset.x)) % 360
-            diffs = [min(abs(obstacle_angle - math.degrees(math.atan2(d.y, d.x)) % 360), 360 - abs(obstacle_angle - math.degrees(math.atan2(d.y, d.x)) % 360)) for d in rotated]
-            bucket = min(range(len(diffs)), key=lambda idx: diffs[idx])
-            distances[bucket] = min(distances[bucket], distance)
-
-        max_distance = math.hypot(self.width, self.height)
-        return [d / max_distance if d != float("inf") else -1.0 for d in distances]
-
     def get_state_vector(self):
-        obstacle_distances = self._obstacle_distances_by_octant()
-
         to_enemy = self.enemy.position - self.player.position
         enemy_distance = self.player.position.distance_to(self.enemy.position) / max(self.width, self.height)
-        enemy_angle = math.degrees(math.atan2(to_enemy.y, to_enemy.x))
-        enemy_angle_relative = normalize_angle_degrees(enemy_angle - self.player.angle) / 180.0
+        enemy_angle = math.atan2(to_enemy.y, to_enemy.x)
+        enemy_relative_angle = math.radians(normalize_angle_degrees(math.degrees(enemy_angle) - self.player.angle))
+        enemy_relative_sin = math.sin(enemy_relative_angle)
+        enemy_relative_cos = math.cos(enemy_relative_angle)
+
+        if self.previous_enemy_distance is None:
+            delta_enemy_distance = 0.0
+        else:
+            delta_enemy_distance = enemy_distance - self.previous_enemy_distance
+        self.previous_enemy_distance = enemy_distance
+
+        if self.previous_enemy_relative_angle is None:
+            delta_enemy_relative_angle = 0.0
+        else:
+            delta_enemy_relative_angle = math.atan2(
+                math.sin(enemy_relative_angle - self.previous_enemy_relative_angle),
+                math.cos(enemy_relative_angle - self.previous_enemy_relative_angle),
+            )
+        self.previous_enemy_relative_angle = enemy_relative_angle
 
         closest_projectile = self._distance_to_closest_enemy_projectile()
         if closest_projectile:
             projectile_distance = self.player.position.distance_to(closest_projectile["pos"]) / max(self.width, self.height)
             to_projectile = closest_projectile["pos"] - self.player.position
-            projectile_angle = math.degrees(math.atan2(to_projectile.y, to_projectile.x))
-            projectile_angle_relative = normalize_angle_degrees(projectile_angle - self.player.angle) / 180.0
+            projectile_angle = math.atan2(to_projectile.y, to_projectile.x)
+            projectile_relative_angle = math.radians(normalize_angle_degrees(math.degrees(projectile_angle) - self.player.angle))
+            projectile_relative_sin = math.sin(projectile_relative_angle)
+            projectile_relative_cos = math.cos(projectile_relative_angle)
         else:
-            projectile_distance = -1.0
-            projectile_angle_relative = 0.0
+            projectile_distance = PROJECTILE_DISTANCE_MISSING
+            projectile_relative_sin = 0.0
+            projectile_relative_cos = 1.0
 
-        x_position = self.player.position.x / self.width
-        y_position = self.player.position.y / self.height
+        if self.previous_projectile_distance is None or projectile_distance == PROJECTILE_DISTANCE_MISSING:
+            delta_projectile_distance = 0.0
+        else:
+            delta_projectile_distance = projectile_distance - self.previous_projectile_distance
+        self.previous_projectile_distance = projectile_distance
 
-        state = obstacle_distances + [
+        forward_dir = pygame.Vector2(1, 0).rotate(self.player.angle).normalize()
+        left_dir = forward_dir.rotate(-90)
+        right_dir = forward_dir.rotate(90)
+
+        forward_blocked = 1.0 if self._would_collide(self.player, forward_dir * PLAYER_MOVE_SPEED) else 0.0
+        left_blocked = 1.0 if self._would_collide(self.player, left_dir * PLAYER_MOVE_SPEED) else 0.0
+        right_blocked = 1.0 if self._would_collide(self.player, right_dir * PLAYER_MOVE_SPEED) else 0.0
+
+        last_action = float(self.last_action_index) / max(1, NUM_ACTIONS - 1)
+        time_since_last_shot = min(1.0, self.frames_since_last_shot / max(1, SHOOT_COOLDOWN_FRAMES))
+
+        state = [
             enemy_distance,
-            enemy_angle_relative,
-            projectile_distance,
-            projectile_angle_relative,
-            x_position,
-            y_position,
-            1.0 if self.is_player_in_projectile_trajectory() else 0.0,
+            enemy_relative_sin,
+            enemy_relative_cos,
+            delta_enemy_distance,
+            delta_enemy_relative_angle,
             1.0 if self.has_line_of_sight() else 0.0,
+            projectile_distance,
+            projectile_relative_sin,
+            projectile_relative_cos,
+            delta_projectile_distance,
+            1.0 if self.is_player_in_projectile_trajectory() else 0.0,
+            forward_blocked,
+            left_blocked,
+            right_blocked,
+            last_action,
+            time_since_last_shot,
         ]
         return state
 

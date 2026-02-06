@@ -5,25 +5,7 @@ from collections import deque
 
 import torch
 
-from constants import (
-    BATCH_SIZE,
-    COLOR_PLAYER_OUTLINE,
-    EPSILON_DECAY,
-    EPSILON_MIN,
-    EPSILON_START,
-    HIDDEN_DIMENSIONS,
-    LEVEL_UP_EVERY_GAMES,
-    LOAD_PREVIOUS_MODEL,
-    MAX_LEVEL,
-    MODEL_BEST_PATH,
-    MODEL_CHECKPOINT_PATH,
-    NUM_ACTIONS,
-    NUM_INPUT_FEATURES,
-    PLOT_TRAINING,
-    REPLAY_BUFFER_SIZE,
-    STARTING_LEVEL,
-    TARGET_SYNC_EVERY,
-)
+from constants import *
 from game_ai_env import TrainingGame
 from rl_model import DQNTrainer, DuelingQNetwork, device
 
@@ -40,22 +22,132 @@ def plot_training(avg_rewards):
     plt.pause(0.01)
 
 
+class SumTree:
+    """Binary sum tree to sample proportional to priority in O(log N)."""
+
+    def __init__(self, capacity: int):
+        self.capacity = capacity
+        self.tree = [0.0] * (2 * capacity)
+        self.data = [None] * capacity
+        self.write = 0
+        self.size = 0
+
+    @property
+    def total(self):
+        return self.tree[1]
+
+    def add(self, priority, data):
+        # Store priority at leaf, then propagate the change up the tree.
+        idx = self.write + self.capacity
+        self.data[self.write] = data
+        self.update(idx, priority)
+        self.write = (self.write + 1) % self.capacity
+        self.size = min(self.size + 1, self.capacity)
+        return idx
+
+    def update(self, idx, priority):
+        # Update a leaf, then fix all affected parent sums.
+        change = priority - self.tree[idx]
+        self.tree[idx] = priority
+        while idx > 1:
+            idx //= 2
+            self.tree[idx] += change
+
+    def get(self, value):
+        # Traverse the tree to find the leaf matching a cumulative sum value.
+        idx = 1
+        while idx < self.capacity:
+            left = idx * 2
+            if value <= self.tree[left]:
+                idx = left
+            else:
+                value -= self.tree[left]
+                idx = left + 1
+        data_idx = idx - self.capacity
+        return idx, self.tree[idx], self.data[data_idx]
+
+
+class PrioritizedReplayBuffer:
+    """PER with proportional prioritization and importance sampling."""
+
+    def __init__(self, capacity, alpha, beta_start, beta_frames, epsilon):
+        self.tree = SumTree(capacity)
+        self.capacity = capacity
+        self.alpha = alpha
+        self.beta_start = beta_start
+        self.beta_frames = max(1, beta_frames)
+        self.epsilon = epsilon
+        self.frame = 0
+        self.max_priority = 1.0
+
+    def __len__(self):
+        return self.tree.size
+
+    def add(self, transition):
+        # New samples get max priority so they are replayed at least once.
+        priority = self.max_priority ** self.alpha
+        return self.tree.add(priority, transition)
+
+    def sample(self, batch_size):
+        # Sample proportional to priority using stratified segments.
+        batch = []
+        indices = []
+        priorities = []
+        segment = self.tree.total / batch_size
+        self.frame += 1
+        beta = min(1.0, self.beta_start + self.frame * (1.0 - self.beta_start) / self.beta_frames)
+
+        for i in range(batch_size):
+            a = segment * i
+            b = segment * (i + 1)
+            value = random.uniform(a, b)
+            idx, priority, data = self.tree.get(value)
+            batch.append(data)
+            indices.append(idx)
+            priorities.append(priority)
+
+        sampling_probabilities = [p / self.tree.total for p in priorities]
+        is_weights = [(self.tree.size * p) ** (-beta) for p in sampling_probabilities]
+        max_weight = max(is_weights) if is_weights else 1.0
+        is_weights = [w / max_weight for w in is_weights]
+        return batch, indices, is_weights
+
+    def update_priorities(self, indices, td_errors):
+        # Update priorities from latest TD errors so sampling stays informative.
+        for idx, td_error in zip(indices, td_errors):
+            priority = (abs(td_error) + self.epsilon) ** self.alpha
+            self.tree.update(idx, priority)
+            self.max_priority = max(self.max_priority, priority)
+
+
 class DQNAgent:
     """Replay-buffer DQN agent with target network synchronization."""
 
     def __init__(self):
         self.episodes_played = 0
         self.epsilon = EPSILON_START
-        self.memory = deque(maxlen=REPLAY_BUFFER_SIZE)
+        self.memory = PrioritizedReplayBuffer(
+            capacity=REPLAY_BUFFER_SIZE,
+            alpha=PER_ALPHA,
+            beta_start=PER_BETA_START,
+            beta_frames=PER_BETA_FRAMES,
+            epsilon=PER_EPSILON,
+        )
 
         self.online_model = DuelingQNetwork(NUM_INPUT_FEATURES, HIDDEN_DIMENSIONS, NUM_ACTIONS).to(device)
         self.target_model = self.online_model.copy().to(device)
         self.target_model.eval()
 
-        if LOAD_PREVIOUS_MODEL:
-            self.online_model.load(MODEL_CHECKPOINT_PATH)
+        load_path = None
+        if LOAD_BEST_MODEL:
+            load_path = MODEL_BEST_PATH
+        elif LOAD_PREVIOUS_MODEL:
+            load_path = MODEL_CHECKPOINT_PATH
+
+        if load_path:
+            self.online_model.load(load_path)
             self.target_model.load_state_dict(self.online_model.state_dict())
-            print(f"Loaded model from {MODEL_CHECKPOINT_PATH}")
+            print(f"Loaded model from {load_path}")
 
         self.trainer = DQNTrainer(self.online_model, self.target_model)
         self.training_steps = 0
@@ -64,24 +156,29 @@ class DQNAgent:
         return [float(value) for value in game.get_state_vector()]
 
     def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+        return self.memory.add((state, action, reward, next_state, done))
 
-    def train_short_memory(self, state, action, reward, next_state, done):
-        self._train_batch([state], [action], [reward], [next_state], [done])
+    def train_short_memory(self, state, action, reward, next_state, done, memory_idx):
+        loss, td_errors = self._train_batch([state], [action], [reward], [next_state], [done], is_weights=[1.0])
+        self.memory.update_priorities([memory_idx], td_errors)
+        return loss
 
     def train_long_memory(self):
-        if not self.memory:
+        if len(self.memory) == 0:
             return 0.0
-        batch = random.sample(self.memory, min(BATCH_SIZE, len(self.memory)))
+        batch_size = min(BATCH_SIZE, len(self.memory))
+        batch, indices, is_weights = self.memory.sample(batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
-        return self._train_batch(states, actions, rewards, next_states, dones)
+        loss, td_errors = self._train_batch(states, actions, rewards, next_states, dones, is_weights=is_weights)
+        self.memory.update_priorities(indices, td_errors)
+        return loss
 
-    def _train_batch(self, states, actions, rewards, next_states, dones):
-        loss = self.trainer.train_step(states, actions, rewards, next_states, dones)
+    def _train_batch(self, states, actions, rewards, next_states, dones, is_weights=None):
+        loss, td_errors = self.trainer.train_step(states, actions, rewards, next_states, dones, is_weights=is_weights)
         self.training_steps += 1
         if self.training_steps % TARGET_SYNC_EVERY == 0:
             self.target_model.load_state_dict(self.online_model.state_dict())
-        return loss
+        return loss, td_errors
 
     def select_action(self, state):
         self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
@@ -102,7 +199,8 @@ def train():
     average_rewards = []
 
     agent = DQNAgent()
-    level = STARTING_LEVEL
+    level = RESUME_LEVEL if RESUME_LEVEL is not None else STARTING_LEVEL
+    level = max(MIN_LEVEL, min(level, MAX_LEVEL))
     game = TrainingGame(level=level)
 
     best_average_reward = float("-inf")
@@ -118,8 +216,8 @@ def train():
             reward, done = game.play_step(action)
             state_new = agent.get_state(game)
 
-            agent.train_short_memory(state_old, action, reward, state_new, done)
-            agent.remember(state_old, action, reward, state_new, done)
+            memory_idx = agent.remember(state_old, action, reward, state_new, done)
+            agent.train_short_memory(state_old, action, reward, state_new, done, memory_idx)
             episode_reward += reward
 
         agent.episodes_played += 1
@@ -146,6 +244,7 @@ def train():
             game.level = level
             game.configure_level()
             games_this_level = 0
+            agent.epsilon = min(EPSILON_LEVEL_UP_MAX, agent.epsilon + EPSILON_LEVEL_UP_BUMP)
             print(f"----- LEVEL UP: {level} -----")
 
         if agent.episodes_played % 50 == 0:

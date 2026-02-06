@@ -2,12 +2,7 @@
 
 import pygame
 
-from constants import (
-    PLAYER_MOVE_SPEED,
-    PLAYER_ROTATION_DEGREES,
-    PROJECTILE_SPEED,
-    SHOOT_COOLDOWN_FRAMES,
-)
+from constants import PLAYER_MOVE_SPEED, PLAYER_ROTATION_DEGREES, PROJECTILE_SPEED, SHOOT_COOLDOWN_FRAMES
 from utils import heading_to_vector
 
 
