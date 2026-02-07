@@ -107,6 +107,10 @@ class BaseGame:
                 return True
         return False
 
+    @staticmethod
+    def _clip(value: float, min_value: float = -1.0, max_value: float = 1.0) -> float:
+        return max(min_value, min(max_value, value))
+
     def _place_obstacles(self):
         self.obstacles = []
         for _ in range(self.num_obstacles):
@@ -234,6 +238,7 @@ class BaseGame:
             delta_enemy_distance = 0.0
         else:
             delta_enemy_distance = enemy_distance - self.previous_enemy_distance
+            delta_enemy_distance = self._clip(delta_enemy_distance)
         self.previous_enemy_distance = enemy_distance
 
         if self.previous_enemy_relative_angle is None:
@@ -243,6 +248,7 @@ class BaseGame:
                 math.sin(enemy_relative_angle - self.previous_enemy_relative_angle),
                 math.cos(enemy_relative_angle - self.previous_enemy_relative_angle),
             )
+            delta_enemy_relative_angle = self._clip(delta_enemy_relative_angle / math.pi)
         self.previous_enemy_relative_angle = enemy_relative_angle
 
         closest_projectile = self._distance_to_closest_enemy_projectile()
@@ -262,6 +268,7 @@ class BaseGame:
             delta_projectile_distance = 0.0
         else:
             delta_projectile_distance = projectile_distance - self.previous_projectile_distance
+            delta_projectile_distance = self._clip(delta_projectile_distance)
         self.previous_projectile_distance = projectile_distance
 
         forward_dir = pygame.Vector2(1, 0).rotate(self.player.angle).normalize()

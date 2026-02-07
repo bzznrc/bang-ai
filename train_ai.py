@@ -133,6 +133,9 @@ class DQNAgent:
             beta_frames=PER_BETA_FRAMES,
             epsilon=PER_EPSILON,
         )
+        self.total_env_steps = 0
+        self.plateau_cooldown = 0
+        self.bump_remaining = 0
 
         self.online_model = DuelingQNetwork(NUM_INPUT_FEATURES, HIDDEN_DIMENSIONS, NUM_ACTIONS).to(device)
         self.target_model = self.online_model.copy().to(device)
@@ -181,7 +184,6 @@ class DQNAgent:
         return loss, td_errors
 
     def select_action(self, state):
-        self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
         if random.random() < self.epsilon:
             action_idx = random.randint(0, NUM_ACTIONS - 1)
         else:
@@ -193,10 +195,22 @@ class DQNAgent:
         action[action_idx] = 1
         return action
 
+    def update_epsilon(self):
+        decay_steps = max(1, int(TOTAL_TRAINING_STEPS * EPSILON_DECAY_FRACTION))
+        progress = min(1.0, self.total_env_steps / decay_steps)
+        base_epsilon = EPSILON_START + progress * (EPSILON_MIN - EPSILON_START)
+        base_epsilon = max(EPSILON_MIN, base_epsilon)
+
+        if self.bump_remaining > 0:
+            self.epsilon = max(base_epsilon, EPSILON_BUMP_VALUE)
+        else:
+            self.epsilon = base_epsilon
+
 
 def train():
     reward_window = deque(maxlen=100)
     average_rewards = []
+    action_window = deque(maxlen=100)
 
     agent = DQNAgent()
     level = RESUME_LEVEL if RESUME_LEVEL is not None else STARTING_LEVEL
@@ -208,17 +222,36 @@ def train():
 
     while True:
         episode_reward = 0.0
+        episode_actions = [0] * NUM_ACTIONS
+        reward_breakdown = {
+            "time_step": 0.0,
+            "bad_shot": 0.0,
+            "blocked_move": 0.0,
+            "hit_enemy": 0.0,
+            "win": 0.0,
+            "lose": 0.0,
+        }
         done = False
 
         while not done:
+            agent.update_epsilon()
             state_old = agent.get_state(game)
             action = agent.select_action(state_old)
-            reward, done = game.play_step(action)
+            reward, done, step_breakdown = game.play_step(action)
             state_new = agent.get_state(game)
 
             memory_idx = agent.remember(state_old, action, reward, state_new, done)
             agent.train_short_memory(state_old, action, reward, state_new, done, memory_idx)
             episode_reward += reward
+            action_idx = action.index(1) if 1 in action else 0
+            episode_actions[action_idx] += 1
+            for key in reward_breakdown:
+                reward_breakdown[key] += step_breakdown.get(key, 0.0)
+            agent.total_env_steps += 1
+
+            if agent.total_env_steps % CHECKPOINT_EVERY_STEPS == 0:
+                agent.online_model.save(MODEL_CHECKPOINT_PATH)
+                print("----- Model Saved (step checkpoint) -----")
 
         agent.episodes_played += 1
         games_this_level += 1
@@ -232,12 +265,16 @@ def train():
             f"Episode: {agent.episodes_played}\t"
             f"Level: {level}\t"
             f"Frames: {game.frame_count}\t"
-            f"Reward: {episode_reward:.2f}\t"
+             f"Reward: {episode_reward:.2f}\t"
             f"Avg100: {avg_reward:.2f}\t"
             f"Best: {best_average_reward:.2f}\t"
             f"Loss: {mean_loss:.4f}\t"
             f"Epsilon: {agent.epsilon:.3f}"
         )
+        #print(
+        #    "Reward breakdown: "
+        #    + ", ".join(f"{key}={value:.2f}" for key, value in reward_breakdown.items())
+        #)
 
         if games_this_level >= LEVEL_UP_EVERY_GAMES and level < MAX_LEVEL:
             level += 1
@@ -256,10 +293,27 @@ def train():
             agent.online_model.save(MODEL_BEST_PATH)
             print("----- New Best Model -----")
 
+        if agent.episodes_played >= EPSILON_PLATEAU_WINDOW_EPISODES:
+            if avg_reward > best_average_reward + EPSILON_PLATEAU_MIN_IMPROVEMENT:
+                best_average_reward = avg_reward
+            else:
+                if agent.plateau_cooldown == 0 and agent.bump_remaining == 0:
+                    agent.bump_remaining = EPSILON_BUMP_DURATION_EPISODES
+                    agent.plateau_cooldown = EPSILON_BUMP_COOLDOWN_EPISODES
+
+        if agent.bump_remaining > 0:
+            agent.bump_remaining -= 1
+        if agent.plateau_cooldown > 0:
+            agent.plateau_cooldown -= 1
+
         if PLOT_TRAINING:
             plot_training(average_rewards)
 
         game.reset()
+
+        if agent.total_env_steps >= TOTAL_TRAINING_STEPS:
+            print("----- Training step limit reached -----")
+            break
 
 
 if __name__ == "__main__":

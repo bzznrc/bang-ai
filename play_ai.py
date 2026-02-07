@@ -32,7 +32,7 @@ class GameModelRunner:
             while not done:
                 state = self.game.get_state_vector()
                 action = self.select_action(state)
-                _, done = self.game.play_step(action)
+                _, done, _ = self.game.play_step(action)
             if not self.game.enemy.is_alive and self.game.player.is_alive:
                 wins += 1
         print(f"Model win rate: {wins}/{episodes} ({(wins / episodes) * 100:.1f}%)")
