@@ -10,17 +10,21 @@ from constants import (
     ACTION_TURN_RIGHT,
     ACTION_WAIT,
     FPS,
+    MAX_LEVEL,
+    MIN_LEVEL,
     SHOW_GAME,
     STARTING_LEVEL,
 )
 from game import BaseGame
+from utils import log_run_context
 
 
 class HumanGame(BaseGame):
     """Allows a human player to control the player agent."""
 
     def __init__(self):
-        super().__init__(level=STARTING_LEVEL)
+        self.level = max(MIN_LEVEL, min(STARTING_LEVEL, MAX_LEVEL))
+        super().__init__(level=self.level)
 
     def play_step(self):
         self.frame_count += 1
@@ -63,5 +67,13 @@ class HumanGame(BaseGame):
 
 if __name__ == "__main__":
     game = HumanGame()
+    log_run_context(
+        "play-human",
+        {
+            "render": SHOW_GAME,
+            "fps": FPS if SHOW_GAME else "unlocked",
+            "level": game.level,
+        },
+    )
     while True:
         game.play_step()

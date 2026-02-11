@@ -1,6 +1,7 @@
 """Shared helper functions."""
 
 import math
+from collections import OrderedDict
 import pygame
 import torch
 
@@ -10,12 +11,43 @@ from constants import BOTTOM_BAR_HEIGHT, SHOW_GAME, TILE_SIZE, USE_GPU
 def get_device() -> torch.device:
     """Return the torch device configured for the run."""
     if USE_GPU and torch.cuda.is_available():
-        device = torch.device("cuda")
-        print(f"Using GPU: {torch.cuda.get_device_name(0)}")
-    else:
-        device = torch.device("cpu")
-        print("Using CPU")
-    return device
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
+def _format_context_value(value) -> str:
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
+
+
+def _format_context_key(key: str) -> str:
+    return key.replace("_", " ").title()
+
+
+def _format_mode_label(mode: str) -> str:
+    words = mode.replace("-", " ").split()
+    formatted = []
+    for word in words:
+        if word.lower() == "ai":
+            formatted.append("AI")
+        else:
+            formatted.append(word.title())
+    return " ".join(formatted)
+
+
+def log_run_context(mode: str, context: dict):
+    """Print a compact, consistent startup context line."""
+    mode_label = _format_mode_label(mode)
+    ordered_context = OrderedDict((key, value) for key, value in context.items() if value is not None)
+    segments = [mode_label]
+    segments.extend(
+        f"{_format_context_key(key)}: {_format_context_value(value)}"
+        for key, value in ordered_context.items()
+    )
+    print(" / ".join(segments))
 
 
 def is_collision(game, rect: pygame.Rect) -> bool:

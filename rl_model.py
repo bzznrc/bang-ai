@@ -11,10 +11,17 @@ import os
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 
-from constants import GAMMA, GRAD_CLIP_NORM, LEARNING_RATE, WEIGHT_DECAY
+from constants import (
+    GAMMA,
+    GRAD_CLIP_NORM,
+    HIDDEN_DIMENSIONS,
+    LEARNING_RATE,
+    NUM_ACTIONS,
+    NUM_INPUT_FEATURES,
+    WEIGHT_DECAY,
+)
 from utils import get_device
 
 
@@ -56,6 +63,24 @@ class DuelingQNetwork(nn.Module):
 
     def load(self, file_name: str):
         self.load_state_dict(torch.load(file_name, map_location=device))
+
+
+def build_q_network() -> DuelingQNetwork:
+    """Construct the default Q-network on the configured device."""
+    return DuelingQNetwork(NUM_INPUT_FEATURES, HIDDEN_DIMENSIONS, NUM_ACTIONS).to(device)
+
+
+def build_loaded_q_network(load_path: str | None = None, strict: bool = False) -> tuple[DuelingQNetwork, str | None]:
+    """Build the default Q-network and optionally load weights."""
+    model = build_q_network()
+    loaded_path = None
+    if load_path:
+        if os.path.exists(load_path):
+            model.load(load_path)
+            loaded_path = load_path
+        elif strict:
+            raise FileNotFoundError(load_path)
+    return model, loaded_path
 
 
 class DQNTrainer:

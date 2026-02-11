@@ -43,11 +43,8 @@ class BaseGame:
         self.enemy_move_probability = ENEMY_MOVE_PROBABILITY_SCALE * level
 
     def reset(self):
-        player_offset = random.choice([0, SPAWN_Y_OFFSET, -SPAWN_Y_OFFSET])
-        enemy_offset = random.choice([0, SPAWN_Y_OFFSET, -SPAWN_Y_OFFSET])
-
-        player_pos = pygame.Vector2(self.width * PLAYER_SPAWN_X_RATIO, (self.height / 2 - BOTTOM_BAR_HEIGHT // 2) + player_offset)
-        enemy_pos = pygame.Vector2(self.width * ENEMY_SPAWN_X_RATIO, (self.height / 2 - BOTTOM_BAR_HEIGHT // 2) + enemy_offset)
+        player_pos = self._sample_spawn_position(PLAYER_SPAWN_X_RATIO)
+        enemy_pos = self._sample_spawn_position(ENEMY_SPAWN_X_RATIO)
 
         self.player = Actor(player_pos, angle=0, team="player")
         self.enemy = Actor(enemy_pos, angle=180, team="enemy")
@@ -61,6 +58,22 @@ class BaseGame:
         self.previous_enemy_relative_angle = None
         self.previous_projectile_distance = None
         self._place_obstacles()
+
+    def _spawn_y_bounds(self) -> tuple[float, float]:
+        center_y = self.height / 2 - BOTTOM_BAR_HEIGHT // 2
+        min_y = center_y - SPAWN_Y_OFFSET
+        max_y = center_y + SPAWN_Y_OFFSET
+
+        # Keep the actor fully inside the playable area.
+        min_actor_y = TILE_SIZE / 2
+        max_actor_y = self.height - BOTTOM_BAR_HEIGHT - TILE_SIZE / 2
+        min_y = max(min_y, min_actor_y)
+        max_y = min(max_y, max_actor_y)
+        return min_y, max_y
+
+    def _sample_spawn_position(self, x_ratio: float) -> pygame.Vector2:
+        min_y, max_y = self._spawn_y_bounds()
+        return pygame.Vector2(self.width * x_ratio, random.uniform(min_y, max_y))
 
     def apply_player_action(self, action_index: int):
         self.last_action_index = action_index
