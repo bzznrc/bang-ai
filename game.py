@@ -61,6 +61,9 @@ class BaseGame:
         self.last_projectile_seen_frame = -EVENT_TIMER_NORMALIZATION_FRAMES
         self.projectile_in_perception_last_frame = False
         self.last_perception_update_frame = -1
+        self.enemy_blocked_move_attempts = 0
+        self.enemy_escape_angle = None
+        self.enemy_escape_frames_remaining = 0
         self._place_obstacles()
 
     def _spawn_y_bounds(self) -> tuple[float, float]:
@@ -192,6 +195,58 @@ class BaseGame:
             return False
         return True
 
+    @staticmethod
+    def _move_vector_for_angle(angle_degrees: float) -> pygame.Vector2:
+        return pygame.Vector2(1, 0).rotate(angle_degrees) * PLAYER_MOVE_SPEED
+
+    def _move_enemy_in_direction(self, angle_degrees: float) -> bool:
+        previous_position = self.enemy.position.copy()
+        movement = self._move_vector_for_angle(angle_degrees)
+        self._update_actor_position(self.enemy, movement)
+        return (self.enemy.position - previous_position).length_squared() > 0
+
+    def _choose_enemy_escape_angle(self, reference_angle: float) -> float | None:
+        available_angles = []
+        for offset in ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES:
+            candidate_angle = (reference_angle + offset) % 360
+            candidate_move = self._move_vector_for_angle(candidate_angle)
+            if not self._would_collide(self.enemy, candidate_move):
+                available_angles.append(candidate_angle)
+        if not available_angles:
+            return None
+        return random.choice(available_angles)
+
+    def _start_enemy_escape(self, reference_angle: float):
+        escape_angle = self._choose_enemy_escape_angle(reference_angle)
+        if escape_angle is None:
+            return
+        self.enemy_escape_angle = escape_angle
+        self.enemy_escape_frames_remaining = ENEMY_ESCAPE_FOLLOW_FRAMES
+        self.enemy_blocked_move_attempts = 0
+
+    def _step_enemy_navigation(self, aim_angle: float):
+        if self.enemy_escape_frames_remaining > 0 and self.enemy_escape_angle is not None:
+            moved = self._move_enemy_in_direction(self.enemy_escape_angle)
+            self.enemy_escape_frames_remaining -= 1
+            if moved:
+                self.enemy_blocked_move_attempts = 0
+            else:
+                replacement_angle = self._choose_enemy_escape_angle(aim_angle)
+                if replacement_angle is not None:
+                    self.enemy_escape_angle = replacement_angle
+            if self.enemy_escape_frames_remaining <= 0:
+                self.enemy_escape_angle = None
+            return
+
+        moved = self._move_enemy_in_direction(aim_angle)
+        if moved:
+            self.enemy_blocked_move_attempts = 0
+            return
+
+        self.enemy_blocked_move_attempts += 1
+        if self.enemy_blocked_move_attempts >= ENEMY_STUCK_MOVE_ATTEMPTS:
+            self._start_enemy_escape(aim_angle)
+
     def _step_enemy(self):
         if not self.enemy.is_alive:
             return
@@ -199,11 +254,11 @@ class BaseGame:
         to_player = self.player.position - self.enemy.position
         angle_to_player = math.degrees(math.atan2(to_player.y, to_player.x)) % 360
         aim_error = random.choice(self.enemy_shot_error_choices)
-        self.enemy.angle = (angle_to_player + aim_error) % 360
+        aim_angle = (angle_to_player + aim_error) % 360
+        self.enemy.angle = aim_angle
 
         if random.random() < self.enemy_move_probability:
-            movement = self.enemy.step_movement(True, False, False, False)
-            self._update_actor_position(self.enemy, movement)
+            self._step_enemy_navigation(aim_angle)
 
         if random.random() < self.enemy_shoot_probability:
             projectile = self.enemy.shoot()

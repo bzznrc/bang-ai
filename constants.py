@@ -1,11 +1,11 @@
 """Configuration values for the Bang RL project."""
 
 # Quick toggles
-SHOW_GAME = False
+SHOW_GAME = True
 PLOT_TRAINING = False
 USE_GPU = False
 LOAD_MODEL = "B" # Set to False, "B" (best), or "L" (last checkpoint)
-RESUME_LEVEL = None
+RESUME_LEVEL = 3
 PLAY_OPPONENT_LEVEL = 3
 
 # Runtime
@@ -124,6 +124,9 @@ LEVEL_SETTINGS = {
         "enemy_shoot_probability": 0.10,
     },
 }
+ENEMY_STUCK_MOVE_ATTEMPTS = 2
+ENEMY_ESCAPE_FOLLOW_FRAMES = 16
+ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES = (90, -90, 180)
 SPAWN_Y_OFFSET = 80
 SAFE_RADIUS = 100
 MIN_OBSTACLE_SECTIONS = 2

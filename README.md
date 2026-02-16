@@ -1,45 +1,49 @@
 # Bang AI - Reinforcement Learning TPS
 
+## Overview
 Bang AI is a compact top-down arena shooter used to train and evaluate a DQN-based agent. The project is intentionally small so you can trace the full loop from environment state to action selection to reward shaping.
 
-**What this project contains**
-- A lightweight 2D arena shooter with obstacles, projectiles, and two agents.
-- A training environment that exposes an 18-feature state vector and reward shaping.
-- A dueling Double-DQN with a target network and prioritized replay.
-- Scripts to train, evaluate, and play manually.
+The environment includes two agents, obstacles, projectiles, and level-based enemy behavior. The RL stack uses a dueling Double-DQN with target network synchronization and prioritized experience replay (PER).
 
-**Project layout**
-- `game.py` core arena simulation and physics
-- `game_agent.py` player and enemy agent logic
-- `game_ai_env.py` RL wrapper with state vector and reward shaping
-- `rl_model.py` dueling network and trainer
-- `train_ai.py` replay-buffer training loop and checkpoints
-- `play_ai.py` run inference using a trained checkpoint
-- `play_human.py` manual control for debugging and sanity checks
-- `ui.py` rendering utilities
-- `constants.py` all hyperparameters and tuning knobs
+## Run Instructions
+Run `train_ai.py` to start training the AI model.
 
-**State (18 inputs)**
+Run `play_ai.py` to evaluate a trained model.
+
+Run `play_human.py` for the user-controlled version.
+
+## Project Layout
+- `game.py`: Core arena simulation and physics.
+- `game_agent.py`: Player and enemy actor logic.
+- `game_ai_env.py`: RL environment wrapper and reward pipeline.
+- `rl_model.py`: Dueling Q-network and training utilities.
+- `train_ai.py`: Training loop, replay sampling, curriculum, and checkpointing.
+- `play_ai.py`: Inference/evaluation runner for trained checkpoints.
+- `play_human.py`: Manual control gameplay loop.
+- `ui.py`: Rendering and HUD.
+- `constants.py`: Central configuration for gameplay and training.
+
+## State Space (18 Inputs)
 - enemy distance (normalized)
 - enemy in line-of-sight (0/1)
 - enemy relative angle (sin)
 - enemy relative angle (cos)
-- Δ enemy distance
-- Δ enemy relative angle
-- nearest projectile distance (normalized, or -1 if none)
+- delta enemy distance
+- delta enemy relative angle
+- nearest projectile distance (normalized, or `-1` if none)
 - nearest projectile relative angle (sin)
 - nearest projectile relative angle (cos)
-- Δ projectile distance
+- delta projectile distance
 - in projectile trajectory (0/1)
 - forward blocked (0/1)
 - left blocked (0/1)
 - right blocked (0/1)
 - last action index (normalized)
 - time since last shot (normalized)
-- time since last seen enemy (normalized [0, 1], resets to `0` when `enemy_in_los == 1`)
+- time since last seen enemy (normalized [0, 1], resets to `0` when enemy is in LOS)
 - time since last projectile seen (normalized [0, 1], resets to `0` when an enemy projectile enters perception)
 
-**Action space (6 outputs)**
+## Action Space (6 Outputs)
 - Move Forward
 - Move Backward
 - Turn Left
@@ -47,50 +51,45 @@ Bang AI is a compact top-down arena shooter used to train and evaluate a DQN-bas
 - Shoot
 - Wait
 
-**Model and training**
-The agent uses a dueling architecture with Double-DQN targets, a target network sync, and prioritized experience replay (PER). The network outputs Q-values for each action, and the replay buffer stabilizes learning.
-Level progression is performance-based: promotion requires the rolling reward average to stay above per-level thresholds for consecutive checks, with a minimum episode count per level.
-Exploration uses epsilon decay plus stagnation-triggered boosts and a level-up epsilon reset.
-
-Key training knobs live in `constants.py`, including:
-- `HIDDEN_DIMENSIONS`, `BATCH_SIZE`, `LEARNING_RATE`, `GAMMA`
-- `REPLAY_BUFFER_SIZE`, `TARGET_SYNC_EVERY`, epsilon and curriculum values
-
-**How to run**
-1. Train a new model
-```bash
-python train_ai.py
-```
-
-Checkpoints:
-- `model/64_32/bang_dqn.pth`
-- `model/64_32/bang_dqn_best.pth`
-
-2. Run the trained model
-```bash
-python play_ai.py
-```
-
-3. Play manually
-```bash
-python play_human.py
-```
-
-Controls:
-- `W` move forward
-- `S` move backward
-- `A` turn left
-- `D` turn right
-- `Space` shoot
-
-**Rewards (current)**
-- win: `+10`
-- lose: `-10`
-- hit enemy: `+2`
-- time step: `-0.02`
+## Rewards
+- win: `+20.0`
+- lose: `-10.0`
+- hit enemy: `+2.0`
+- time step: `-0.005`
 - bad shot (no LOS): `-0.1`
 - blocked move: `-0.1`
 
-**Notes**
-- Training runs headless by default. Toggle `SHOW_GAME` or `PLOT_TRAINING` in `constants.py` as needed.
-- Input/output definitions live in `constants.py` (`INPUT_FEATURE_NAMES`, `ACTION_NAMES`).
+## Important Constants
+Key configuration are set in `constants.py`. Frequently tuned values include:
+
+- `HIDDEN_DIMENSIONS`: hidden-layer sizes for the Q-network.
+- `REPLAY_BUFFER_SIZE`: replay memory capacity.
+- `BATCH_SIZE`: number of samples per optimization step.
+- `LEARNING_RATE`: optimizer learning rate.
+- `GAMMA`: reward discount factor.
+- `LEVEL_SETTINGS`: per-level enemy behavior and obstacle density.
+- `TRAIN_EVERY_STEPS`: environment steps between training updates.
+- `TARGET_SYNC_EVERY`: target network sync interval.
+- `EPSILON_*` values: exploration schedule and stagnation controls.
+- `LOAD_MODEL`: load mode (`False`, `"B"`, `"L"`).
+
+## Checkpoints
+- `model/64_48/bang_dqn.pth`
+- `model/64_48/bang_dqn_best.pth`
+
+## Controls (Human Mode)
+- `W`: move forward
+- `S`: move backward
+- `A`: turn left
+- `D`: turn right
+- `Space`: shoot
+
+## Dependencies
+- Python 3.10+
+- Pygame
+- PyTorch
+- Matplotlib
+
+## Notes
+- Training runs headless by default. Toggle `SHOW_GAME` and `PLOT_TRAINING` in `constants.py` when needed.
+- State and action definitions are in `constants.py` via `INPUT_FEATURE_NAMES` and `ACTION_NAMES`.
