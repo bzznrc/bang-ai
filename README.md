@@ -4,7 +4,7 @@ Bang AI is a compact top-down arena shooter used to train and evaluate a DQN-bas
 
 **What this project contains**
 - A lightweight 2D arena shooter with obstacles, projectiles, and two agents.
-- A training environment that exposes a 16-feature state vector and reward shaping.
+- A training environment that exposes an 18-feature state vector and reward shaping.
 - A dueling Double-DQN with a target network and prioritized replay.
 - Scripts to train, evaluate, and play manually.
 
@@ -19,13 +19,13 @@ Bang AI is a compact top-down arena shooter used to train and evaluate a DQN-bas
 - `ui.py` rendering utilities
 - `constants.py` all hyperparameters and tuning knobs
 
-**State (16 inputs)**
+**State (18 inputs)**
 - enemy distance (normalized)
+- enemy in line-of-sight (0/1)
 - enemy relative angle (sin)
 - enemy relative angle (cos)
 - Δ enemy distance
 - Δ enemy relative angle
-- enemy in line-of-sight (0/1)
 - nearest projectile distance (normalized, or -1 if none)
 - nearest projectile relative angle (sin)
 - nearest projectile relative angle (cos)
@@ -36,6 +36,8 @@ Bang AI is a compact top-down arena shooter used to train and evaluate a DQN-bas
 - right blocked (0/1)
 - last action index (normalized)
 - time since last shot (normalized)
+- time since last seen enemy (normalized [0, 1], resets to `0` when `enemy_in_los == 1`)
+- time since last projectile seen (normalized [0, 1], resets to `0` when an enemy projectile enters perception)
 
 **Action space (6 outputs)**
 - Move Forward
@@ -47,10 +49,12 @@ Bang AI is a compact top-down arena shooter used to train and evaluate a DQN-bas
 
 **Model and training**
 The agent uses a dueling architecture with Double-DQN targets, a target network sync, and prioritized experience replay (PER). The network outputs Q-values for each action, and the replay buffer stabilizes learning.
+Level progression is performance-based: promotion requires the rolling reward average to stay above per-level thresholds for consecutive checks, with a minimum episode count per level.
+Exploration uses epsilon decay plus stagnation-triggered boosts and a level-up epsilon reset.
 
 Key training knobs live in `constants.py`, including:
 - `HIDDEN_DIMENSIONS`, `BATCH_SIZE`, `LEARNING_RATE`, `GAMMA`
-- `REPLAY_BUFFER_SIZE`, `TARGET_SYNC_EVERY`, epsilon schedule values
+- `REPLAY_BUFFER_SIZE`, `TARGET_SYNC_EVERY`, epsilon and curriculum values
 
 **How to run**
 1. Train a new model

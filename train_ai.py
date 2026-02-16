@@ -17,8 +17,8 @@ def plot_training(avg_rewards):
     plt.clf()
     plt.title("Training Progress")
     plt.xlabel("Episodes")
-    plt.ylabel("Avg Reward (100 episodes)")
-    plt.plot(avg_rewards, label="avg reward", color=tuple(c / 255 for c in COLOR_PLAYER_OUTLINE))
+    plt.ylabel(f"Avg Reward ({REWARD_ROLLING_WINDOW} Episodes)")
+    plt.plot(avg_rewards, label="Avg Reward", color=tuple(c / 255 for c in COLOR_PLAYER_OUTLINE))
     plt.legend()
     plt.pause(0.01)
 
@@ -31,6 +31,16 @@ def resolve_model_load_path():
     if LOAD_MODEL == "L":
         return MODEL_CHECKPOINT_PATH
     raise ValueError('Invalid LOAD_MODEL value. Use False, "B", or "L".')
+
+
+def try_save_model(model, path: str, success_message: str):
+    try:
+        model.save(path)
+    except RuntimeError as exc:
+        print(f"----- WARNING: save failed ({path}): {exc} -----")
+        return False
+    print(success_message)
+    return True
 
 
 class SumTree:
@@ -136,8 +146,13 @@ class DQNAgent:
 
     def __init__(self):
         self.episodes_played = 0
-        self.epsilon = EPSILON_START
+        self.epsilon = 0.0
         self.epsilon_boost = 0.0
+        self.epsilon_start = EPSILON_START_SCRATCH
+        self.epsilon_decay_per_episode = (EPSILON_START_SCRATCH - EPSILON_MIN) / max(1, EPSILON_DECAY_EPISODES)
+        self.stagnation_rewards = deque(maxlen=STAGNATION_WINDOW)
+        self.best_stagnation_average = None
+        self.stagnation_episodes = 0
         self.memory = PrioritizedReplayBuffer(
             capacity=REPLAY_BUFFER_SIZE,
             alpha=PER_ALPHA,
@@ -152,6 +167,9 @@ class DQNAgent:
         self.online_model, self.loaded_model_path = build_loaded_q_network(load_path=load_path, strict=False)
         self.target_model = self.online_model.copy().to(device)
         self.target_model.eval()
+
+        self.epsilon_start = EPSILON_START_RESUME if self.loaded_model_path else EPSILON_START_SCRATCH
+        self.epsilon = self.epsilon_start
 
         self.trainer = DQNTrainer(self.online_model, self.target_model)
         self.training_steps = 0
@@ -190,28 +208,114 @@ class DQNAgent:
         action[action_idx] = 1
         return action
 
+    def _base_epsilon(self):
+        decayed = self.epsilon_start - self.episodes_played * self.epsilon_decay_per_episode
+        return max(EPSILON_MIN, decayed)
+
     def update_epsilon(self):
-        decay_episodes = max(1, EPSILON_DECAY_EPISODES)
-        progress = min(1.0, self.episodes_played / decay_episodes)
-        base_epsilon = EPSILON_START + progress * (EPSILON_MIN - EPSILON_START)
-        base_epsilon = max(EPSILON_MIN, base_epsilon)
-        self.epsilon = min(EPSILON_LEVEL_UP_MAX, base_epsilon + self.epsilon_boost)
+        base_epsilon = self._base_epsilon()
+        epsilon_upper_bound = max(self.epsilon_start, EPSILON_EXPLORATION_CAP)
+        self.epsilon = min(epsilon_upper_bound, max(EPSILON_MIN, base_epsilon + self.epsilon_boost))
+        if self.epsilon_boost > 0.0:
+            self.epsilon_boost = max(0.0, self.epsilon_boost - self.epsilon_decay_per_episode)
 
-    def apply_level_up_bump(self):
-        self.epsilon_boost = min(EPSILON_LEVEL_UP_MAX, self.epsilon_boost + EPSILON_LEVEL_UP_BUMP)
+    def _set_exploration_target(self, target_epsilon: float):
+        target_epsilon = max(EPSILON_MIN, min(EPSILON_EXPLORATION_CAP, target_epsilon))
+        base_epsilon = self._base_epsilon()
+        self.epsilon_boost = max(0.0, target_epsilon - base_epsilon)
+        self.epsilon = target_epsilon
 
-    def on_episode_end(self):
-        self.epsilon_boost *= EPSILON_LEVEL_UP_BUMP_DECAY
+    def apply_stagnation_boost(self):
+        if self.epsilon >= EPSILON_EXPLORATION_CAP:
+            return False
+        self._set_exploration_target(self.epsilon + EPSILON_STAGNATION_BOOST)
+        return True
+
+    def reset_epsilon_for_level_up(self):
+        self._set_exploration_target(EPSILON_LEVEL_UP_RESET)
+        self.stagnation_rewards.clear()
+        self.best_stagnation_average = None
+        self.stagnation_episodes = 0
+
+    def update_stagnation_state(self, episode_reward: float) -> bool:
+        self.stagnation_rewards.append(episode_reward)
+        if len(self.stagnation_rewards) < STAGNATION_WINDOW:
+            return False
+
+        moving_avg = sum(self.stagnation_rewards) / len(self.stagnation_rewards)
+        if self.best_stagnation_average is None:
+            self.best_stagnation_average = moving_avg
+            self.stagnation_episodes = 0
+            return False
+
+        if moving_avg > self.best_stagnation_average + STAGNATION_IMPROVEMENT_THRESHOLD:
+            self.best_stagnation_average = moving_avg
+            self.stagnation_episodes = 0
+            return False
+
+        self.stagnation_episodes += 1
+        if self.stagnation_episodes >= PATIENCE:
+            boosted = self.apply_stagnation_boost()
+            self.stagnation_episodes = 0
+            self.best_stagnation_average = moving_avg
+            return boosted
+        return False
+
+
+class PerformanceCurriculum:
+    """Progress levels using rolling reward thresholds."""
+
+    def __init__(self, level: int):
+        self.level = level
+        self.episodes_at_level = 0
+        self.consecutive_passes = 0
+        expected_transitions = max(0, MAX_LEVEL - MIN_LEVEL)
+        if len(CURRICULUM_REWARD_THRESHOLDS) < expected_transitions:
+            raise ValueError(
+                f"CURRICULUM_REWARD_THRESHOLDS must define at least {expected_transitions} values."
+            )
+
+    def threshold_for_current_level(self):
+        if self.level >= MAX_LEVEL:
+            return None
+        idx = self.level - MIN_LEVEL
+        if idx < 0 or idx >= len(CURRICULUM_REWARD_THRESHOLDS):
+            return None
+        return CURRICULUM_REWARD_THRESHOLDS[idx]
+
+    def on_episode_end(self, avg_reward: float, rolling_ready: bool) -> bool:
+        self.episodes_at_level += 1
+        threshold = self.threshold_for_current_level()
+        if threshold is None:
+            return False
+
+        if not rolling_ready or self.episodes_at_level < CURRICULUM_MIN_EPISODES_PER_LEVEL:
+            self.consecutive_passes = 0
+            return False
+
+        if avg_reward > threshold:
+            self.consecutive_passes += 1
+        else:
+            self.consecutive_passes = 0
+
+        if self.consecutive_passes < CURRICULUM_CONSECUTIVE_CHECKS:
+            return False
+
+        self.level += 1
+        self.episodes_at_level = 0
+        self.consecutive_passes = 0
+        return True
 
 
 def train():
-    reward_window = deque(maxlen=100)
+    reward_window = deque(maxlen=REWARD_ROLLING_WINDOW)
     average_rewards = []
 
     agent = DQNAgent()
     level = RESUME_LEVEL if RESUME_LEVEL is not None else STARTING_LEVEL
     level = max(MIN_LEVEL, min(level, MAX_LEVEL))
-    game = TrainingGame(level=level)
+    curriculum = PerformanceCurriculum(level=level)
+    game = TrainingGame(level=curriculum.level)
     if agent.loaded_model_path:
         model_status = agent.loaded_model_path
     elif agent.requested_model_path:
@@ -224,17 +328,23 @@ def train():
             "model": model_status,
             "load_mode": LOAD_MODEL,
             "steps": TOTAL_TRAINING_STEPS,
-            "eps": f"{EPSILON_START}->{EPSILON_MIN}@{EPSILON_DECAY_EPISODES}ep",
-            "bump": f"{EPSILON_LEVEL_UP_BUMP}x{EPSILON_LEVEL_UP_BUMP_DECAY}",
+            "eps": f"scratch:{EPSILON_START_SCRATCH} resume:{EPSILON_START_RESUME} -> {EPSILON_MIN}@{EPSILON_DECAY_EPISODES}ep",
+            "stagnation": (
+                f"w{STAGNATION_WINDOW}/p{PATIENCE}/d{STAGNATION_IMPROVEMENT_THRESHOLD}/"
+                f"+{EPSILON_STAGNATION_BOOST}@{EPSILON_EXPLORATION_CAP}"
+            ),
+            "curriculum": (
+                f"window{REWARD_ROLLING_WINDOW}/min{CURRICULUM_MIN_EPISODES_PER_LEVEL}/"
+                f"checks{CURRICULUM_CONSECUTIVE_CHECKS}/th{CURRICULUM_REWARD_THRESHOLDS}"
+            ),
             "batch": BATCH_SIZE,
             "buffer": REPLAY_BUFFER_SIZE,
             "train_every": TRAIN_EVERY_STEPS,
-            "level": level,
+            "level": curriculum.level,
         },
     )
 
     best_average_reward = float("-inf")
-    games_this_level = 0
 
     while True:
         agent.update_epsilon()
@@ -261,46 +371,42 @@ def train():
                         episode_losses.append(loss)
 
             if agent.total_env_steps % CHECKPOINT_EVERY_STEPS == 0:
-                agent.online_model.save(MODEL_CHECKPOINT_PATH)
-                print("----- Model Saved (step checkpoint) -----")
+                try_save_model(agent.online_model, MODEL_CHECKPOINT_PATH, "----- Model Saved (step checkpoint) -----")
 
         agent.episodes_played += 1
-        games_this_level += 1
         mean_loss = sum(episode_losses) / len(episode_losses) if episode_losses else 0.0
 
         reward_window.append(episode_reward)
         avg_reward = sum(reward_window) / len(reward_window)
         average_rewards.append(avg_reward)
+        exploration_boosted = agent.update_stagnation_state(episode_reward)
+        if exploration_boosted:
+            print(f"----- Exploration Bump: Epsilon -> {agent.epsilon:.3f} -----")
 
         print(
             f"Episode: {agent.episodes_played}\t"
-            f"Level: {level}\t"
+            f"Level: {curriculum.level}\t"
             f"Frames: {game.frame_count}\t"
             f"Reward: {episode_reward:.2f}\t"
-            f"Avg100: {avg_reward:.2f}\t"
+            f"Avg{REWARD_ROLLING_WINDOW}: {avg_reward:.2f}\t"
             f"Best: {best_average_reward:.2f}\t"
             f"Loss: {mean_loss:.4f}\t"
             f"Epsilon: {agent.epsilon:.3f}"
         )
 
-        if games_this_level >= LEVEL_UP_EVERY_GAMES and level < MAX_LEVEL:
-            level += 1
-            game.level = level
+        rolling_ready = len(reward_window) == REWARD_ROLLING_WINDOW
+        if curriculum.on_episode_end(avg_reward, rolling_ready):
+            game.level = curriculum.level
             game.configure_level()
-            games_this_level = 0
-            agent.apply_level_up_bump()
-            print(f"----- LEVEL UP: {level} -----")
+            agent.reset_epsilon_for_level_up()
+            print(f"----- LEVEL UP: {curriculum.level} -----")
 
-        if agent.episodes_played % 50 == 0:
-            agent.online_model.save(MODEL_CHECKPOINT_PATH)
-            print("----- Model Saved -----")
+        if agent.episodes_played % EPISODE_CHECKPOINT_EVERY == 0:
+            try_save_model(agent.online_model, MODEL_CHECKPOINT_PATH, "----- Model Saved -----")
 
-        if agent.episodes_played >= 100 and avg_reward > best_average_reward:
+        if agent.episodes_played >= BEST_MODEL_MIN_EPISODES and avg_reward > best_average_reward:
             best_average_reward = avg_reward
-            agent.online_model.save(MODEL_BEST_PATH)
-            print("----- New Best Model -----")
-
-        agent.on_episode_end()
+            try_save_model(agent.online_model, MODEL_BEST_PATH, "----- New Best Model -----")
 
         if PLOT_TRAINING:
             plot_training(average_rewards)

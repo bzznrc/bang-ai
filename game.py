@@ -57,6 +57,10 @@ class BaseGame:
         self.previous_enemy_distance = None
         self.previous_enemy_relative_angle = None
         self.previous_projectile_distance = None
+        self.last_seen_enemy_frame = -EVENT_TIMER_NORMALIZATION_FRAMES
+        self.last_projectile_seen_frame = -EVENT_TIMER_NORMALIZATION_FRAMES
+        self.projectile_in_perception_last_frame = False
+        self.last_perception_update_frame = -1
         self._place_obstacles()
 
     def _spawn_y_bounds(self) -> tuple[float, float]:
@@ -123,6 +127,28 @@ class BaseGame:
     @staticmethod
     def _clip(value: float, min_value: float = -1.0, max_value: float = 1.0) -> float:
         return max(min_value, min(max_value, value))
+
+    @staticmethod
+    def _normalize_elapsed_frames(frames: int, normalization_frames: int = EVENT_TIMER_NORMALIZATION_FRAMES) -> float:
+        return min(1.0, max(0, frames) / max(1, normalization_frames))
+
+    def _update_enemy_seen_timer(self, enemy_in_los: bool) -> float:
+        if enemy_in_los:
+            self.last_seen_enemy_frame = self.frame_count
+        return self._normalize_elapsed_frames(self.frame_count - self.last_seen_enemy_frame)
+
+    def _update_projectile_seen_timer(self, projectile_in_perception: bool) -> float:
+        if self.last_perception_update_frame != self.frame_count:
+            projectile_entered_perception = projectile_in_perception and not self.projectile_in_perception_last_frame
+            if projectile_entered_perception:
+                self.last_projectile_seen_frame = self.frame_count
+            self.projectile_in_perception_last_frame = projectile_in_perception
+            self.last_perception_update_frame = self.frame_count
+        return self._normalize_elapsed_frames(self.frame_count - self.last_projectile_seen_frame)
+
+    @staticmethod
+    def _build_state_vector_from_features(feature_values: dict[str, float]) -> list[float]:
+        return [float(feature_values[name]) for name in INPUT_FEATURE_NAMES]
 
     def _place_obstacles(self):
         self.obstacles = []
@@ -246,6 +272,8 @@ class BaseGame:
         enemy_relative_angle = math.radians(normalize_angle_degrees(math.degrees(enemy_angle) - self.player.angle))
         enemy_relative_sin = math.sin(enemy_relative_angle)
         enemy_relative_cos = math.cos(enemy_relative_angle)
+        enemy_in_los = self.has_line_of_sight()
+        time_since_last_seen_enemy = self._update_enemy_seen_timer(enemy_in_los)
 
         if self.previous_enemy_distance is None:
             delta_enemy_distance = 0.0
@@ -265,6 +293,7 @@ class BaseGame:
         self.previous_enemy_relative_angle = enemy_relative_angle
 
         closest_projectile = self._distance_to_closest_enemy_projectile()
+        projectile_in_perception = closest_projectile is not None
         if closest_projectile:
             projectile_distance = self.player.position.distance_to(closest_projectile["pos"]) / max(self.width, self.height)
             to_projectile = closest_projectile["pos"] - self.player.position
@@ -284,6 +313,8 @@ class BaseGame:
             delta_projectile_distance = self._clip(delta_projectile_distance)
         self.previous_projectile_distance = projectile_distance
 
+        time_since_last_projectile_seen = self._update_projectile_seen_timer(projectile_in_perception)
+
         forward_dir = pygame.Vector2(1, 0).rotate(self.player.angle).normalize()
         left_dir = forward_dir.rotate(-90)
         right_dir = forward_dir.rotate(90)
@@ -294,26 +325,27 @@ class BaseGame:
 
         last_action = float(self.last_action_index) / max(1, NUM_ACTIONS - 1)
         time_since_last_shot = min(1.0, self.frames_since_last_shot / max(1, SHOOT_COOLDOWN_FRAMES))
-
-        state = [
-            enemy_distance,
-            enemy_relative_sin,
-            enemy_relative_cos,
-            delta_enemy_distance,
-            delta_enemy_relative_angle,
-            1.0 if self.has_line_of_sight() else 0.0,
-            projectile_distance,
-            projectile_relative_sin,
-            projectile_relative_cos,
-            delta_projectile_distance,
-            1.0 if self.is_player_in_projectile_trajectory() else 0.0,
-            forward_blocked,
-            left_blocked,
-            right_blocked,
-            last_action,
-            time_since_last_shot,
-        ]
-        return state
+        feature_values = {
+            "enemy_distance": enemy_distance,
+            "enemy_in_los": 1.0 if enemy_in_los else 0.0,
+            "enemy_relative_angle_sin": enemy_relative_sin,
+            "enemy_relative_angle_cos": enemy_relative_cos,
+            "delta_enemy_distance": delta_enemy_distance,
+            "delta_enemy_relative_angle": delta_enemy_relative_angle,
+            "nearest_projectile_distance": projectile_distance,
+            "nearest_projectile_relative_angle_sin": projectile_relative_sin,
+            "nearest_projectile_relative_angle_cos": projectile_relative_cos,
+            "delta_projectile_distance": delta_projectile_distance,
+            "in_projectile_trajectory": 1.0 if self.is_player_in_projectile_trajectory() else 0.0,
+            "forward_blocked": forward_blocked,
+            "left_blocked": left_blocked,
+            "right_blocked": right_blocked,
+            "last_action_index": last_action,
+            "time_since_last_shot": time_since_last_shot,
+            "time_since_last_seen_enemy": time_since_last_seen_enemy,
+            "time_since_last_projectile_seen": time_since_last_projectile_seen,
+        }
+        return self._build_state_vector_from_features(feature_values)
 
     def play_step(self, action):
         raise NotImplementedError

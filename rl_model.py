@@ -8,6 +8,7 @@ signals.
 
 import copy
 import os
+import time
 
 import torch
 import torch.nn as nn
@@ -18,6 +19,8 @@ from constants import (
     GRAD_CLIP_NORM,
     HIDDEN_DIMENSIONS,
     LEARNING_RATE,
+    MODEL_SAVE_RETRIES,
+    MODEL_SAVE_RETRY_DELAY_SECONDS,
     NUM_ACTIONS,
     NUM_INPUT_FEATURES,
     WEIGHT_DECAY,
@@ -58,8 +61,28 @@ class DuelingQNetwork(nn.Module):
         return copy.deepcopy(self)
 
     def save(self, file_name: str):
-        os.makedirs(os.path.dirname(file_name), exist_ok=True)
-        torch.save(self.state_dict(), file_name)
+        directory = os.path.dirname(file_name) or "."
+        os.makedirs(directory, exist_ok=True)
+        temp_file = f"{file_name}.tmp.{os.getpid()}"
+        last_error = None
+
+        for attempt in range(MODEL_SAVE_RETRIES):
+            try:
+                torch.save(self.state_dict(), temp_file)
+                os.replace(temp_file, file_name)
+                return
+            except (OSError, RuntimeError) as error:
+                last_error = error
+                if os.path.exists(temp_file):
+                    try:
+                        os.remove(temp_file)
+                    except OSError:
+                        pass
+                if attempt < MODEL_SAVE_RETRIES - 1:
+                    delay = MODEL_SAVE_RETRY_DELAY_SECONDS * (attempt + 1)
+                    time.sleep(delay)
+
+        raise RuntimeError(f"Failed to save model to '{file_name}' after {MODEL_SAVE_RETRIES} attempts.") from last_error
 
     def load(self, file_name: str):
         self.load_state_dict(torch.load(file_name, map_location=device))
