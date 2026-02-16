@@ -4,20 +4,24 @@ import math
 import pygame
 
 from constants import (
-    BOTTOM_BAR_HEIGHT,
+    BB_HEIGHT,
     BOTTOM_BAR_MARGIN,
     COLOR_BACKGROUND,
-    COLOR_ENEMY,
-    COLOR_ENEMY_OUTLINE,
-    COLOR_OBSTACLE_FILL,
-    COLOR_OBSTACLE_OUTLINE,
-    COLOR_PLAYER,
-    COLOR_PLAYER_OUTLINE,
+    COLOR_BOTTOM_BAR,
+    COLOR_NEUTRAL_DARK,
+    COLOR_NEUTRAL_LIGHT,
+    COLOR_P1_DARK,
+    COLOR_P1_LIGHT,
+    COLOR_P2_DARK,
+    COLOR_P2_LIGHT,
     COLOR_PROJECTILE,
     COLOR_SCORE,
-    FONT_SIZE,
+    FONT_NAME_BAR,
+    FONT_PATH_REGULAR,
+    FONT_SIZE_BAR,
     SHOW_GAME,
     TILE_SIZE,
+    UI_STATUS_SEPARATOR,
 )
 
 
@@ -27,7 +31,13 @@ class Renderer:
     def __init__(self, display, game):
         self.display = display
         self.game = game
-        self.font = pygame.font.SysFont(None, FONT_SIZE)
+        try:
+            self.font = pygame.font.Font(FONT_PATH_REGULAR, FONT_SIZE_BAR)
+        except OSError:
+            self.font = pygame.font.SysFont(FONT_NAME_BAR or "Roboto", FONT_SIZE_BAR, bold=False, italic=False)
+        self.bottom_bar_top = self.game.height - BB_HEIGHT
+        self.bottom_bar_rect = pygame.Rect(0, self.bottom_bar_top, self.game.width, BB_HEIGHT)
+        self.score_y = self.bottom_bar_top + (BB_HEIGHT - self.font.get_height()) // 2
 
     def render_frame(self):
         if not SHOW_GAME:
@@ -39,20 +49,24 @@ class Renderer:
 
         self.display.fill(COLOR_BACKGROUND)
         for obstacle in self.game.obstacles:
-            pygame.draw.rect(self.display, COLOR_OBSTACLE_OUTLINE, pygame.Rect(obstacle.x, obstacle.y, TILE_SIZE, TILE_SIZE))
-            pygame.draw.rect(self.display, COLOR_OBSTACLE_FILL, pygame.Rect(obstacle.x + 4, obstacle.y + 4, TILE_SIZE - 8, TILE_SIZE - 8))
+            pygame.draw.rect(self.display, COLOR_NEUTRAL_LIGHT, pygame.Rect(obstacle.x, obstacle.y, TILE_SIZE, TILE_SIZE))
+            pygame.draw.rect(self.display, COLOR_NEUTRAL_DARK, pygame.Rect(obstacle.x + 4, obstacle.y + 4, TILE_SIZE - 8, TILE_SIZE - 8))
 
         if self.game.enemy.is_alive:
-            self._draw_actor(self.game.enemy, COLOR_ENEMY, COLOR_ENEMY_OUTLINE)
+            self._draw_actor(self.game.enemy, COLOR_P2_DARK, COLOR_P2_LIGHT)
         if self.game.player.is_alive:
-            self._draw_actor(self.game.player, COLOR_PLAYER, COLOR_PLAYER_OUTLINE)
+            self._draw_actor(self.game.player, COLOR_P1_DARK, COLOR_P1_LIGHT)
 
         for projectile in self.game.projectiles:
             pygame.draw.circle(self.display, COLOR_PROJECTILE, (int(projectile["pos"].x), int(projectile["pos"].y)), 5)
 
-        pygame.draw.rect(self.display, (0, 0, 0), pygame.Rect(0, self.game.height - BOTTOM_BAR_HEIGHT, self.game.width, BOTTOM_BAR_HEIGHT))
-        score_text = self.font.render(f"P1 Score: {self.game.p1_score}    P2 Score: {self.game.p2_score}", True, COLOR_SCORE)
-        self.display.blit(score_text, (BOTTOM_BAR_MARGIN, self.game.height - BOTTOM_BAR_HEIGHT + (BOTTOM_BAR_HEIGHT - FONT_SIZE) // 2))
+        pygame.draw.rect(self.display, COLOR_BOTTOM_BAR, self.bottom_bar_rect)
+        score_text = self.font.render(
+            f"P1 Score: {self.game.p1_score}{UI_STATUS_SEPARATOR}P2 Score: {self.game.p2_score}",
+            True,
+            COLOR_SCORE,
+        )
+        self.display.blit(score_text, (BOTTOM_BAR_MARGIN, self.score_y))
         pygame.display.flip()
 
     def _draw_actor(self, actor, fill_color, outline_color):

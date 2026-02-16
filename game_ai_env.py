@@ -38,8 +38,6 @@ class TrainingGame(BaseGame):
 
         self.player.tick()
         self.enemy.tick()
-        self.ui.render_frame()
-        self.clock.tick(FPS if SHOW_GAME else TRAINING_FPS)
 
         reward = PENALTY_TIME_STEP
         reward_breakdown = {
@@ -66,12 +64,17 @@ class TrainingGame(BaseGame):
         if not self.enemy.is_alive:
             reward += REWARD_WIN
             reward_breakdown["win"] = REWARD_WIN
+            self.p1_score += 1
             done = True
         elif not self.player.is_alive:
             reward += PENALTY_LOSE
             reward_breakdown["lose"] = PENALTY_LOSE
+            self.p2_score += 1
             done = True
         elif self.frame_count >= MAX_EPISODE_STEPS:
             done = True
+
+        self.ui.render_frame()
+        self.clock.tick(FPS if SHOW_GAME else TRAINING_FPS)
 
         return reward, done, reward_breakdown

@@ -6,34 +6,45 @@ PLOT_TRAINING = False
 USE_GPU = False
 LOAD_MODEL = "B" # Set to False, "B" (best), or "L" (last checkpoint)
 RESUME_LEVEL = None
-PLAY_OPPONENT_LEVEL = 1
+PLAY_OPPONENT_LEVEL = 3
 
 # Runtime
 FPS = 60
 TRAINING_FPS = 0  # 0 lets pygame run unlocked for faster headless training
+WINDOW_TITLE = "Bang AI"
 
 # Arena dimensions
 GRID_WIDTH_TILES = 32
 GRID_HEIGHT_TILES = 24
 TILE_SIZE = 20
-BOTTOM_BAR_HEIGHT = 30
+BB_HEIGHT = 30
 BOTTOM_BAR_MARGIN = 20
 SCREEN_WIDTH = GRID_WIDTH_TILES * TILE_SIZE
-SCREEN_HEIGHT = GRID_HEIGHT_TILES * TILE_SIZE + BOTTOM_BAR_HEIGHT
+SCREEN_HEIGHT = GRID_HEIGHT_TILES * TILE_SIZE + BB_HEIGHT
 
 # Colors (original palette)
-COLOR_PLAYER = (30, 100, 100)
-COLOR_PLAYER_OUTLINE = (50, 215, 200)
-COLOR_ENEMY = (125, 45, 45)
-COLOR_ENEMY_OUTLINE = (240, 95, 95)
-COLOR_OBSTACLE_OUTLINE = (125, 125, 125)
-COLOR_OBSTACLE_FILL = (45, 45, 45)
-COLOR_PROJECTILE = (235, 195, 50)
-COLOR_BACKGROUND = (45, 45, 45)
-COLOR_SCORE = (255, 255, 255)
+# Players
+COLOR_P1_LIGHT = (102, 212, 200)
+COLOR_P1_DARK  = (38, 110, 105)
+COLOR_P2_LIGHT = (244, 137, 120)
+COLOR_P2_DARK  = (150, 62, 54)
+# Neutrals
+COLOR_NEUTRAL_DARK  = (97, 101, 107)
+COLOR_NEUTRAL_LIGHT = (230, 231, 235)
+
+# UI surfaces
+COLOR_BACKGROUND = (28, 30, 36)
+COLOR_BOTTOM_BAR = (18, 18, 22)
+
+# Text & highlights
+COLOR_SCORE    = (238, 238, 242)
+COLOR_PROJECTILE = (255, 224, 130)
 
 # Rendering
-FONT_SIZE = 24
+FONT_NAME_BAR = None
+FONT_PATH_REGULAR = "assets/fonts/Roboto-Regular.ttf"
+FONT_SIZE_BAR = 18
+UI_STATUS_SEPARATOR = "  |  "
 
 # Input/output spaces
 INPUT_FEATURE_NAMES = [
@@ -93,26 +104,26 @@ REWARD_ROLLING_WINDOW = 100
 CURRICULUM_REWARD_THRESHOLDS = [8.0, 6.0]
 CURRICULUM_CONSECUTIVE_CHECKS = 5
 CURRICULUM_MIN_EPISODES_PER_LEVEL = 100
-DEFAULT_OBSTACLES = 8
 LEVEL_SETTINGS = {
     1: {
         "num_obstacles": 4,
-        "enemy_can_move": False,
+        "enemy_move_probability": 0.00,
         "enemy_shot_error_choices": [-20, -10, 0, 10, 20],
+        "enemy_shoot_probability": 0.05,
     },
     2: {
         "num_obstacles": 8,
-        "enemy_can_move": True,
+        "enemy_move_probability": 0.20,
         "enemy_shot_error_choices": [-12, -6, 0, 6, 12],
+        "enemy_shoot_probability": 0.05,
     },
     3: {
         "num_obstacles": 12,
-        "enemy_can_move": True,
+        "enemy_move_probability": 0.20,
         "enemy_shot_error_choices": [-8, -4, 0, 4, 8],
+        "enemy_shoot_probability": 0.10,
     },
 }
-ENEMY_MOVE_PROBABILITY_SCALE = 0.05
-ENEMY_SHOOT_PROBABILITY = 0.10
 SPAWN_Y_OFFSET = 80
 SAFE_RADIUS = 100
 MIN_OBSTACLE_SECTIONS = 2
@@ -152,7 +163,7 @@ EPSILON_MIN = 0.05
 EPSILON_DECAY_EPISODES = 1_000
 EPSILON_STAGNATION_BOOST = 0.05
 EPSILON_EXPLORATION_CAP = 0.5
-EPSILON_LEVEL_UP_RESET = EPSILON_EXPLORATION_CAP
+EPSILON_LEVEL_UP_RESET = 0.25
 STAGNATION_WINDOW = REWARD_ROLLING_WINDOW
 PATIENCE = 25
 STAGNATION_IMPROVEMENT_THRESHOLD = 0.05

@@ -54,8 +54,6 @@ class HumanGame(BaseGame):
 
         self.player.tick()
         self.enemy.tick()
-        self.ui.render_frame()
-        self.clock.tick(FPS if SHOW_GAME else 0)
 
         if not self.enemy.is_alive:
             self.p1_score += 1
@@ -63,6 +61,9 @@ class HumanGame(BaseGame):
         elif not self.player.is_alive:
             self.p2_score += 1
             self.reset()
+
+        self.ui.render_frame()
+        self.clock.tick(FPS if SHOW_GAME else 0)
 
 
 if __name__ == "__main__":

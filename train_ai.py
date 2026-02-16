@@ -18,7 +18,7 @@ def plot_training(avg_rewards):
     plt.title("Training Progress")
     plt.xlabel("Episodes")
     plt.ylabel(f"Avg Reward ({REWARD_ROLLING_WINDOW} Episodes)")
-    plt.plot(avg_rewards, label="Avg Reward", color=tuple(c / 255 for c in COLOR_PLAYER_OUTLINE))
+    plt.plot(avg_rewards, label="Avg Reward", color=tuple(c / 255 for c in COLOR_P1_LIGHT))
     plt.legend()
     plt.pause(0.01)
 

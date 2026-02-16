@@ -22,7 +22,7 @@ class BaseGame:
         self.clock = pygame.time.Clock()
         self.display = pygame.display.set_mode((self.width, self.height)) if SHOW_GAME else pygame.Surface((self.width, self.height))
         if SHOW_GAME:
-            pygame.display.set_caption("Bang")
+            pygame.display.set_caption(WINDOW_TITLE)
 
         self.ui = Renderer(self.display, self)
 
@@ -35,12 +35,12 @@ class BaseGame:
     def configure_level(self):
         """Configure enemy complexity and obstacle density."""
         level = max(MIN_LEVEL, min(self.level, MAX_LEVEL))
-        settings = LEVEL_SETTINGS.get(level) or LEVEL_SETTINGS.get(MAX_LEVEL, {})
+        settings = LEVEL_SETTINGS[level]
 
-        self.num_obstacles = settings.get("num_obstacles", DEFAULT_OBSTACLES) or DEFAULT_OBSTACLES
-        self.enemy_can_move = settings.get("enemy_can_move", True)
-        self.enemy_shot_error_choices = settings.get("enemy_shot_error_choices", [0])
-        self.enemy_move_probability = ENEMY_MOVE_PROBABILITY_SCALE * level
+        self.num_obstacles = settings["num_obstacles"]
+        self.enemy_move_probability = settings["enemy_move_probability"]
+        self.enemy_shot_error_choices = settings["enemy_shot_error_choices"]
+        self.enemy_shoot_probability = settings["enemy_shoot_probability"]
 
     def reset(self):
         player_pos = self._sample_spawn_position(PLAYER_SPAWN_X_RATIO)
@@ -64,13 +64,13 @@ class BaseGame:
         self._place_obstacles()
 
     def _spawn_y_bounds(self) -> tuple[float, float]:
-        center_y = self.height / 2 - BOTTOM_BAR_HEIGHT // 2
+        center_y = self.height / 2 - BB_HEIGHT // 2
         min_y = center_y - SPAWN_Y_OFFSET
         max_y = center_y + SPAWN_Y_OFFSET
 
         # Keep the actor fully inside the playable area.
         min_actor_y = TILE_SIZE / 2
-        max_actor_y = self.height - BOTTOM_BAR_HEIGHT - TILE_SIZE / 2
+        max_actor_y = self.height - BB_HEIGHT - TILE_SIZE / 2
         min_y = max(min_y, min_actor_y)
         max_y = min(max_y, max_actor_y)
         return min_y, max_y
@@ -177,14 +177,14 @@ class BaseGame:
     def _sample_valid_obstacle_start(self):
         for _ in range(OBSTACLE_START_ATTEMPTS):
             x = random.randint(0, (self.width - TILE_SIZE) // TILE_SIZE) * TILE_SIZE
-            y = random.randint(0, (self.height - BOTTOM_BAR_HEIGHT - TILE_SIZE) // TILE_SIZE) * TILE_SIZE
+            y = random.randint(0, (self.height - BB_HEIGHT - TILE_SIZE) // TILE_SIZE) * TILE_SIZE
             point = pygame.Vector2(x, y)
             if self._is_valid_obstacle_tile(point, []):
                 return point
         return None
 
     def _is_valid_obstacle_tile(self, tile: pygame.Vector2, pending_tiles):
-        if not (0 <= tile.x < self.width and 0 <= tile.y < self.height - BOTTOM_BAR_HEIGHT):
+        if not (0 <= tile.x < self.width and 0 <= tile.y < self.height - BB_HEIGHT):
             return False
         if any(tile == existing for existing in self.obstacles) or any(tile == existing for existing in pending_tiles):
             return False
@@ -201,11 +201,11 @@ class BaseGame:
         aim_error = random.choice(self.enemy_shot_error_choices)
         self.enemy.angle = (angle_to_player + aim_error) % 360
 
-        if self.enemy_can_move and random.random() < self.enemy_move_probability:
+        if random.random() < self.enemy_move_probability:
             movement = self.enemy.step_movement(True, False, False, False)
             self._update_actor_position(self.enemy, movement)
 
-        if random.random() < ENEMY_SHOOT_PROBABILITY:
+        if random.random() < self.enemy_shoot_probability:
             projectile = self.enemy.shoot()
             if projectile:
                 self.projectiles.append(projectile)

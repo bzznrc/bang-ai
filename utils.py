@@ -5,7 +5,7 @@ from collections import OrderedDict
 import pygame
 import torch
 
-from constants import BOTTOM_BAR_HEIGHT, SHOW_GAME, TILE_SIZE, USE_GPU
+from constants import BB_HEIGHT, SHOW_GAME, TILE_SIZE, USE_GPU
 
 
 def get_device() -> torch.device:
@@ -52,7 +52,7 @@ def log_run_context(mode: str, context: dict):
 
 def is_collision(game, rect: pygame.Rect) -> bool:
     """Check if rect collides against walls or obstacles."""
-    if rect.left < 0 or rect.right > game.width or rect.top < 0 or rect.bottom > game.height - BOTTOM_BAR_HEIGHT:
+    if rect.left < 0 or rect.right > game.width or rect.top < 0 or rect.bottom > game.height - BB_HEIGHT:
         return True
 
     for obstacle in game.obstacles:
