@@ -2,9 +2,8 @@
 
 import pygame
 
-from constants import PLAYER_MOVE_SPEED, PLAYER_ROTATION_DEGREES, PROJECTILE_SPEED, SHOOT_COOLDOWN_FRAMES
-from utils import heading_to_vector
-
+from config import PLAYER_MOVE_SPEED, PLAYER_ROTATION_DEGREES, PROJECTILE_SPEED, SHOOT_COOLDOWN_FRAMES
+from bgds.utils import heading_to_vector
 
 class Actor:
     """A movable actor that can rotate and shoot projectiles."""
@@ -48,3 +47,4 @@ class Actor:
         """Advance per-frame actor timers."""
         if self.cooldown_frames > 0:
             self.cooldown_frames -= 1
+

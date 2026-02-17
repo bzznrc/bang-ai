@@ -2,7 +2,7 @@
 
 import torch
 
-from constants import (
+from config import (
     LOAD_MODEL,
     MAX_LEVEL,
     MIN_LEVEL,
@@ -13,8 +13,7 @@ from constants import (
 )
 from game_ai_env import TrainingGame
 from rl_model import build_loaded_q_network, device
-from utils import log_run_context
-
+from bgds.utils import log_run_context
 
 class GameModelRunner:
     """Loads a trained model and plays episodes greedily."""
@@ -56,10 +55,10 @@ class GameModelRunner:
                 wins += 1
         print(f"Model win rate: {wins}/{episodes} ({(wins / episodes) * 100:.1f}%)")
 
-
 if __name__ == "__main__":
     try:
         runner = GameModelRunner(MODEL_BEST_PATH)
     except FileNotFoundError:
         runner = GameModelRunner(MODEL_CHECKPOINT_PATH)
     runner.run()
+

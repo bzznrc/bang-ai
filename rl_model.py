@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from constants import (
+from config import (
     GAMMA,
     GRAD_CLIP_NORM,
     HIDDEN_DIMENSIONS,
@@ -23,13 +23,12 @@ from constants import (
     MODEL_SAVE_RETRY_DELAY_SECONDS,
     NUM_ACTIONS,
     NUM_INPUT_FEATURES,
+    USE_GPU,
     WEIGHT_DECAY,
 )
-from utils import get_device
+from bgds.utils import get_torch_device
 
-
-device = get_device()
-
+device = get_torch_device(prefer_gpu=USE_GPU)
 
 class DuelingQNetwork(nn.Module):
     """Compact Q-network with separate value and advantage heads."""
@@ -87,11 +86,9 @@ class DuelingQNetwork(nn.Module):
     def load(self, file_name: str):
         self.load_state_dict(torch.load(file_name, map_location=device))
 
-
 def build_q_network() -> DuelingQNetwork:
     """Construct the default Q-network on the configured device."""
     return DuelingQNetwork(NUM_INPUT_FEATURES, HIDDEN_DIMENSIONS, NUM_ACTIONS).to(device)
-
 
 def build_loaded_q_network(load_path: str | None = None, strict: bool = False) -> tuple[DuelingQNetwork, str | None]:
     """Build the default Q-network and optionally load weights."""
@@ -104,7 +101,6 @@ def build_loaded_q_network(load_path: str | None = None, strict: bool = False) -
         elif strict:
             raise FileNotFoundError(load_path)
     return model, loaded_path
-
 
 class DQNTrainer:
     """Trains the online network with Double-DQN targets."""
@@ -151,3 +147,4 @@ class DQNTrainer:
         torch.nn.utils.clip_grad_norm_(self.online_model.parameters(), GRAD_CLIP_NORM)
         self.optimizer.step()
         return float(loss.item()), td_errors.detach().abs().cpu().tolist()
+

@@ -5,11 +5,49 @@ from collections import deque
 
 import torch
 
-from constants import *
+from config import (
+    BATCH_SIZE,
+    BEST_MODEL_MIN_EPISODES,
+    CHECKPOINT_EVERY_STEPS,
+    CURRICULUM_CONSECUTIVE_CHECKS,
+    CURRICULUM_MIN_EPISODES_PER_LEVEL,
+    CURRICULUM_REWARD_THRESHOLDS,
+    EPISODE_CHECKPOINT_EVERY,
+    EPSILON_DECAY_EPISODES,
+    EPSILON_EXPLORATION_CAP,
+    EPSILON_LEVEL_UP_RESET,
+    EPSILON_MIN,
+    EPSILON_STAGNATION_BOOST,
+    EPSILON_START_RESUME,
+    EPSILON_START_SCRATCH,
+    GRADIENT_STEPS_PER_UPDATE,
+    LEARN_START_STEPS,
+    LOAD_MODEL,
+    MAX_LEVEL,
+    MIN_LEVEL,
+    MODEL_BEST_PATH,
+    MODEL_CHECKPOINT_PATH,
+    NUM_ACTIONS,
+    PATIENCE,
+    PER_ALPHA,
+    PER_BETA_FRAMES,
+    PER_BETA_START,
+    PER_EPSILON,
+    PLOT_TRAINING,
+    REPLAY_BUFFER_SIZE,
+    RESUME_LEVEL,
+    REWARD_ROLLING_WINDOW,
+    STAGNATION_IMPROVEMENT_THRESHOLD,
+    STAGNATION_WINDOW,
+    STARTING_LEVEL,
+    TARGET_SYNC_EVERY,
+    TOTAL_TRAINING_STEPS,
+    TRAIN_EVERY_STEPS,
+)
+from bgds.visual.colors import COLOR_AQUA
+from bgds.utils import log_run_context
 from game_ai_env import TrainingGame
 from rl_model import DQNTrainer, build_loaded_q_network, device
-from utils import log_run_context
-
 
 def plot_training(avg_rewards):
     import matplotlib.pyplot as plt
@@ -18,10 +56,9 @@ def plot_training(avg_rewards):
     plt.title("Training Progress")
     plt.xlabel("Episodes")
     plt.ylabel(f"Avg Reward ({REWARD_ROLLING_WINDOW} Episodes)")
-    plt.plot(avg_rewards, label="Avg Reward", color=tuple(c / 255 for c in COLOR_P1_LIGHT))
+    plt.plot(avg_rewards, label="Avg Reward", color=tuple(c / 255 for c in COLOR_AQUA))
     plt.legend()
     plt.pause(0.01)
-
 
 def resolve_model_load_path():
     if LOAD_MODEL is False:
@@ -32,7 +69,6 @@ def resolve_model_load_path():
         return MODEL_CHECKPOINT_PATH
     raise ValueError('Invalid LOAD_MODEL value. Use False, "B", or "L".')
 
-
 def try_save_model(model, path: str, success_message: str):
     try:
         model.save(path)
@@ -41,7 +77,6 @@ def try_save_model(model, path: str, success_message: str):
         return False
     print(success_message)
     return True
-
 
 class SumTree:
     """Binary sum tree to sample proportional to priority in O(log N)."""
@@ -86,7 +121,6 @@ class SumTree:
                 idx = left + 1
         data_idx = idx - self.capacity
         return idx, self.tree[idx], self.data[data_idx]
-
 
 class PrioritizedReplayBuffer:
     """PER with proportional prioritization and importance sampling."""
@@ -139,7 +173,6 @@ class PrioritizedReplayBuffer:
             priority = (abs(td_error) + self.epsilon) ** self.alpha
             self.tree.update(idx, priority)
             self.max_priority = max(self.max_priority, priority)
-
 
 class DQNAgent:
     """Replay-buffer DQN agent with target network synchronization."""
@@ -261,7 +294,6 @@ class DQNAgent:
             return boosted
         return False
 
-
 class PerformanceCurriculum:
     """Progress levels using rolling reward thresholds."""
 
@@ -305,7 +337,6 @@ class PerformanceCurriculum:
         self.episodes_at_level = 0
         self.consecutive_passes = 0
         return True
-
 
 def train():
     reward_window = deque(maxlen=REWARD_ROLLING_WINDOW)
@@ -417,6 +448,6 @@ def train():
             print("----- Training step limit reached -----")
             break
 
-
 if __name__ == "__main__":
     train()
+

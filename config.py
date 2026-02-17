@@ -1,5 +1,27 @@
 """Configuration values for the Bang RL project."""
 
+from pathlib import Path
+import sys
+
+# Prefer local project modules when multiple game folders are on sys.path.
+_PROJECT_ROOT = Path(__file__).resolve().parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+# Allow local workspace runs without installing bgds globally.
+_WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
+_BGDS_SRC = _WORKSPACE_ROOT / "bazza-game-design-system" / "src"
+if _BGDS_SRC.exists() and str(_BGDS_SRC) not in sys.path:
+    sys.path.insert(0, str(_BGDS_SRC))
+
+from bgds.boards.square import SQUARE_BOARD_STANDARD, SQUARE_CELL_RENDER_STANDARD
+from bgds.visual.typography import (
+    FONT_FAMILY_DEFAULT,
+    FONT_PATH_ROBOTO_REGULAR,
+    FONT_SIZE_STATUS_COMPACT,
+    STATUS_SEPARATOR_SLASH,
+)
+
 # Quick toggles
 SHOW_GAME = True
 PLOT_TRAINING = False
@@ -14,37 +36,20 @@ TRAINING_FPS = 0  # 0 lets pygame run unlocked for faster headless training
 WINDOW_TITLE = "Bang AI"
 
 # Arena dimensions
-GRID_WIDTH_TILES = 32
-GRID_HEIGHT_TILES = 24
-TILE_SIZE = 20
-BB_HEIGHT = 30
-BOTTOM_BAR_MARGIN = 20
-SCREEN_WIDTH = GRID_WIDTH_TILES * TILE_SIZE
-SCREEN_HEIGHT = GRID_HEIGHT_TILES * TILE_SIZE + BB_HEIGHT
-
-# Colors (original palette)
-# Players
-COLOR_P1_LIGHT = (102, 212, 200)
-COLOR_P1_DARK  = (38, 110, 105)
-COLOR_P2_LIGHT = (244, 137, 120)
-COLOR_P2_DARK  = (150, 62, 54)
-# Neutrals
-COLOR_NEUTRAL_DARK  = (97, 101, 107)
-COLOR_NEUTRAL_LIGHT = (230, 231, 235)
-
-# UI surfaces
-COLOR_BACKGROUND = (28, 30, 36)
-COLOR_BOTTOM_BAR = (18, 18, 22)
-
-# Text & highlights
-COLOR_SCORE    = (238, 238, 242)
-COLOR_PROJECTILE = (255, 224, 130)
+GRID_WIDTH_TILES = SQUARE_BOARD_STANDARD.columns
+GRID_HEIGHT_TILES = SQUARE_BOARD_STANDARD.rows
+TILE_SIZE = SQUARE_BOARD_STANDARD.cell_size_px
+BB_HEIGHT = SQUARE_BOARD_STANDARD.bottom_bar_height_px
+SCREEN_WIDTH = SQUARE_BOARD_STANDARD.screen_width_px
+SCREEN_HEIGHT = SQUARE_BOARD_STANDARD.screen_height_px
+CELL_INSET = SQUARE_CELL_RENDER_STANDARD.inset_px
+CELL_INSET_DOUBLE = SQUARE_CELL_RENDER_STANDARD.inset_double_px
 
 # Rendering
-FONT_NAME_BAR = None
-FONT_PATH_REGULAR = "assets/fonts/Roboto-Regular.ttf"
-FONT_SIZE_BAR = 18
-UI_STATUS_SEPARATOR = "  |  "
+FONT_NAME_BAR = FONT_FAMILY_DEFAULT
+FONT_PATH_REGULAR = FONT_PATH_ROBOTO_REGULAR
+FONT_SIZE_BAR = FONT_SIZE_STATUS_COMPACT
+UI_STATUS_SEPARATOR = STATUS_SEPARATOR_SLASH
 
 # Input/output spaces
 INPUT_FEATURE_NAMES = [

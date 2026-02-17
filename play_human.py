@@ -2,7 +2,7 @@
 
 import pygame
 
-from constants import (
+from config import (
     ACTION_MOVE_BACKWARD,
     ACTION_MOVE_FORWARD,
     ACTION_SHOOT,
@@ -16,8 +16,7 @@ from constants import (
     STARTING_LEVEL,
 )
 from game import BaseGame
-from utils import log_run_context
-
+from bgds.utils import log_run_context
 
 class HumanGame(BaseGame):
     """Allows a human player to control the player agent."""
@@ -65,7 +64,6 @@ class HumanGame(BaseGame):
         self.ui.render_frame()
         self.clock.tick(FPS if SHOW_GAME else 0)
 
-
 if __name__ == "__main__":
     game = HumanGame()
     log_run_context(
@@ -78,3 +76,4 @@ if __name__ == "__main__":
     )
     while True:
         game.play_step()
+

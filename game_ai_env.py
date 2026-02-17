@@ -1,6 +1,6 @@
 """Training environment wrapping the arena with RL rewards."""
 
-from constants import (
+from config import (
     ACTION_SHOOT,
     ACTION_MOVE_BACKWARD,
     ACTION_MOVE_FORWARD,
@@ -18,7 +18,6 @@ from constants import (
     TRAINING_FPS,
 )
 from game import BaseGame
-
 
 class TrainingGame(BaseGame):
     """Environment used by DQN training."""
@@ -78,3 +77,4 @@ class TrainingGame(BaseGame):
         self.clock.tick(FPS if SHOW_GAME else TRAINING_FPS)
 
         return reward, done, reward_breakdown
+

@@ -5,11 +5,50 @@ import random
 
 import pygame
 
-from constants import *
+from config import (
+    ACTION_MOVE_BACKWARD,
+    ACTION_MOVE_FORWARD,
+    ACTION_SHOOT,
+    ACTION_TURN_LEFT,
+    ACTION_TURN_RIGHT,
+    AIM_TOLERANCE_DEGREES,
+    BB_HEIGHT,
+    ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES,
+    ENEMY_ESCAPE_FOLLOW_FRAMES,
+    ENEMY_SPAWN_X_RATIO,
+    ENEMY_STUCK_MOVE_ATTEMPTS,
+    EVENT_TIMER_NORMALIZATION_FRAMES,
+    INPUT_FEATURE_NAMES,
+    LEVEL_SETTINGS,
+    MAX_LEVEL,
+    MAX_OBSTACLE_SECTIONS,
+    MIN_LEVEL,
+    MIN_OBSTACLE_SECTIONS,
+    NUM_ACTIONS,
+    OBSTACLE_START_ATTEMPTS,
+    PLAYER_MOVE_SPEED,
+    PLAYER_SPAWN_X_RATIO,
+    PROJECTILE_DISTANCE_MISSING,
+    PROJECTILE_HITBOX_HALF,
+    PROJECTILE_HITBOX_SIZE,
+    PROJECTILE_TRAJECTORY_DOT_THRESHOLD,
+    SAFE_RADIUS,
+    SHOOT_COOLDOWN_FRAMES,
+    SHOW_GAME,
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH,
+    SPAWN_Y_OFFSET,
+    TILE_SIZE,
+    WINDOW_TITLE,
+)
+from bgds.boards.square_generation import spawn_connected_random_walk_shapes
+from bgds.utils import (
+    collides_with_square_arena,
+    normalize_angle_degrees,
+    square_obstacle_between_points,
+)
 from game_agent import Actor
 from ui import Renderer
-from utils import is_collision, is_obstacle_between, normalize_angle_degrees
-
 
 class BaseGame:
     """Two-player top-down arena game logic."""
@@ -103,7 +142,14 @@ class BaseGame:
     def _update_actor_position(self, actor, movement: pygame.Vector2):
         new_position = actor.position + movement
         actor_rect = pygame.Rect(new_position.x - TILE_SIZE // 2, new_position.y - TILE_SIZE // 2, TILE_SIZE, TILE_SIZE)
-        if is_collision(self, actor_rect):
+        if collides_with_square_arena(
+            rect=actor_rect,
+            obstacles=self.obstacles,
+            tile_size=TILE_SIZE,
+            arena_width=self.width,
+            arena_height=self.height,
+            bottom_bar_height=BB_HEIGHT,
+        ):
             return
 
         other = self.enemy if actor is self.player else self.player
@@ -117,7 +163,14 @@ class BaseGame:
     def _would_collide(self, actor, movement: pygame.Vector2) -> bool:
         new_position = actor.position + movement
         actor_rect = pygame.Rect(new_position.x - TILE_SIZE // 2, new_position.y - TILE_SIZE // 2, TILE_SIZE, TILE_SIZE)
-        if is_collision(self, actor_rect):
+        if collides_with_square_arena(
+            rect=actor_rect,
+            obstacles=self.obstacles,
+            tile_size=TILE_SIZE,
+            arena_width=self.width,
+            arena_height=self.height,
+            bottom_bar_height=BB_HEIGHT,
+        ):
             return True
 
         other = self.enemy if actor is self.player else self.player
@@ -155,26 +208,15 @@ class BaseGame:
 
     def _place_obstacles(self):
         self.obstacles = []
-        for _ in range(self.num_obstacles):
-            start = self._sample_valid_obstacle_start()
-            if start is None:
-                continue
-
-            shape = [start]
-            current = start
-            directions = [(-TILE_SIZE, 0), (TILE_SIZE, 0), (0, -TILE_SIZE), (0, TILE_SIZE)]
-            for _ in range(random.randint(MIN_OBSTACLE_SECTIONS, MAX_OBSTACLE_SECTIONS) - 1):
-                random.shuffle(directions)
-                extended = False
-                for dx, dy in directions:
-                    candidate = pygame.Vector2(current.x + dx, current.y + dy)
-                    if self._is_valid_obstacle_tile(candidate, shape):
-                        shape.append(candidate)
-                        current = candidate
-                        extended = True
-                        break
-                if not extended:
-                    break
+        shapes = spawn_connected_random_walk_shapes(
+            shape_count=self.num_obstacles,
+            min_sections=MIN_OBSTACLE_SECTIONS,
+            max_sections=MAX_OBSTACLE_SECTIONS,
+            sample_start_fn=self._sample_valid_obstacle_start,
+            neighbor_candidates_fn=self._neighbor_obstacle_candidates,
+            is_candidate_valid_fn=self._is_valid_obstacle_tile,
+        )
+        for shape in shapes:
             self.obstacles.extend(shape)
 
     def _sample_valid_obstacle_start(self):
@@ -194,6 +236,15 @@ class BaseGame:
         if tile.distance_to(self.player.position) < SAFE_RADIUS or tile.distance_to(self.enemy.position) < SAFE_RADIUS:
             return False
         return True
+
+    @staticmethod
+    def _neighbor_obstacle_candidates(tile: pygame.Vector2) -> list[pygame.Vector2]:
+        return [
+            pygame.Vector2(tile.x - TILE_SIZE, tile.y),
+            pygame.Vector2(tile.x + TILE_SIZE, tile.y),
+            pygame.Vector2(tile.x, tile.y - TILE_SIZE),
+            pygame.Vector2(tile.x, tile.y + TILE_SIZE),
+        ]
 
     @staticmethod
     def _move_vector_for_angle(angle_degrees: float) -> pygame.Vector2:
@@ -278,7 +329,14 @@ class BaseGame:
                 PROJECTILE_HITBOX_SIZE,
                 PROJECTILE_HITBOX_SIZE,
             )
-            if is_collision(self, projectile_rect):
+            if collides_with_square_arena(
+                rect=projectile_rect,
+                obstacles=self.obstacles,
+                tile_size=TILE_SIZE,
+                arena_width=self.width,
+                arena_height=self.height,
+                bottom_bar_height=BB_HEIGHT,
+            ):
                 continue
 
             target = self.player if projectile["owner"] == "enemy" else self.enemy
@@ -318,7 +376,12 @@ class BaseGame:
             return True
         enemy_angle = math.degrees(math.atan2(to_enemy.y, to_enemy.x))
         relative = normalize_angle_degrees(enemy_angle - self.player.angle)
-        return abs(relative) <= AIM_TOLERANCE_DEGREES and not is_obstacle_between(self, self.player.position, self.enemy.position)
+        return abs(relative) <= AIM_TOLERANCE_DEGREES and not square_obstacle_between_points(
+            point_a=self.player.position,
+            point_b=self.enemy.position,
+            obstacles=self.obstacles,
+            tile_size=TILE_SIZE,
+        )
 
     def get_state_vector(self):
         to_enemy = self.enemy.position - self.player.position
@@ -404,3 +467,4 @@ class BaseGame:
 
     def play_step(self, action):
         raise NotImplementedError
+

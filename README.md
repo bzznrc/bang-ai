@@ -5,6 +5,15 @@ Bang AI is a compact top-down arena shooter used to train and evaluate a DQN-bas
 
 The environment includes two agents, obstacles, projectiles, and level-based enemy behavior. The RL stack uses a dueling Double-DQN with target network synchronization and prioritized experience replay (PER).
 
+## Shared Design System
+- Visual and board constants are sourced from the sibling Bazza Game Design System package (`bgds` imports).
+- For standalone environments, install it with `pip install -e ../bazza-game-design-system`.
+
+## Install
+```bash
+pip install -r requirements.txt
+```
+
 ## Run Instructions
 Run `train_ai.py` to start training the AI model.
 
@@ -21,7 +30,7 @@ Run `play_human.py` for the user-controlled version.
 - `play_ai.py`: Inference/evaluation runner for trained checkpoints.
 - `play_human.py`: Manual control gameplay loop.
 - `ui.py`: Rendering and HUD.
-- `constants.py`: Central configuration for gameplay and training.
+- `config.py`: Central configuration for gameplay and training.
 
 ## State Space (18 Inputs)
 - enemy distance (normalized)
@@ -60,7 +69,7 @@ Run `play_human.py` for the user-controlled version.
 - blocked move: `-0.1`
 
 ## Important Constants
-Key configuration are set in `constants.py`. Frequently tuned values include:
+Key configuration are set in `config.py`. Frequently tuned values include:
 
 - `HIDDEN_DIMENSIONS`: hidden-layer sizes for the Q-network.
 - `REPLAY_BUFFER_SIZE`: replay memory capacity.
@@ -86,10 +95,9 @@ Key configuration are set in `constants.py`. Frequently tuned values include:
 
 ## Dependencies
 - Python 3.10+
-- Pygame
-- PyTorch
-- Matplotlib
+- See `requirements.txt`
 
 ## Notes
-- Training runs headless by default. Toggle `SHOW_GAME` and `PLOT_TRAINING` in `constants.py` when needed.
-- State and action definitions are in `constants.py` via `INPUT_FEATURE_NAMES` and `ACTION_NAMES`.
+- Training runs headless by default. Toggle `SHOW_GAME` and `PLOT_TRAINING` in `config.py` when needed.
+- State and action definitions are in `config.py` via `INPUT_FEATURE_NAMES` and `ACTION_NAMES`.
+
