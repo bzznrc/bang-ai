@@ -1,10 +1,6 @@
-"""Neural network and trainer utilities for DQN.
+"""Neural network and trainer utilities for DQN."""
 
-This module uses a dueling architecture plus a target network update step
-(Double DQN). Compared with a simple linear Q model, this is usually more
-stable in environments where action quality depends on multiple interacting
-signals.
-"""
+from __future__ import annotations
 
 import copy
 import os
@@ -14,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from config import (
+from bang_ai.config import (
     GAMMA,
     GRAD_CLIP_NORM,
     HIDDEN_DIMENSIONS,
@@ -26,9 +22,10 @@ from config import (
     USE_GPU,
     WEIGHT_DECAY,
 )
-from bgds.utils import get_torch_device
+from bang_ai.runtime import get_torch_device
 
 device = get_torch_device(prefer_gpu=USE_GPU)
+
 
 class DuelingQNetwork(nn.Module):
     """Compact Q-network with separate value and advantage heads."""
@@ -38,10 +35,7 @@ class DuelingQNetwork(nn.Module):
         layers = []
         in_features = input_size
         for hidden in hidden_sizes:
-            layers.extend([
-                nn.Linear(in_features, hidden),
-                nn.GELU(),
-            ])
+            layers.extend([nn.Linear(in_features, hidden), nn.GELU()])
             in_features = hidden
 
         self.feature_extractor = nn.Sequential(*layers)
@@ -81,17 +75,22 @@ class DuelingQNetwork(nn.Module):
                     delay = MODEL_SAVE_RETRY_DELAY_SECONDS * (attempt + 1)
                     time.sleep(delay)
 
-        raise RuntimeError(f"Failed to save model to '{file_name}' after {MODEL_SAVE_RETRIES} attempts.") from last_error
+        raise RuntimeError(
+            f"Failed to save model to '{file_name}' after {MODEL_SAVE_RETRIES} attempts."
+        ) from last_error
 
     def load(self, file_name: str):
         self.load_state_dict(torch.load(file_name, map_location=device))
 
+
 def build_q_network() -> DuelingQNetwork:
-    """Construct the default Q-network on the configured device."""
     return DuelingQNetwork(NUM_INPUT_FEATURES, HIDDEN_DIMENSIONS, NUM_ACTIONS).to(device)
 
-def build_loaded_q_network(load_path: str | None = None, strict: bool = False) -> tuple[DuelingQNetwork, str | None]:
-    """Build the default Q-network and optionally load weights."""
+
+def build_loaded_q_network(
+    load_path: str | None = None,
+    strict: bool = False,
+) -> tuple[DuelingQNetwork, str | None]:
     model = build_q_network()
     loaded_path = None
     if load_path:
@@ -102,13 +101,18 @@ def build_loaded_q_network(load_path: str | None = None, strict: bool = False) -
             raise FileNotFoundError(load_path)
     return model, loaded_path
 
+
 class DQNTrainer:
     """Trains the online network with Double-DQN targets."""
 
     def __init__(self, online_model: DuelingQNetwork, target_model: DuelingQNetwork):
         self.online_model = online_model
         self.target_model = target_model
-        self.optimizer = optim.AdamW(online_model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+        self.optimizer = optim.AdamW(
+            online_model.parameters(),
+            lr=LEARNING_RATE,
+            weight_decay=WEIGHT_DECAY,
+        )
         self.loss_fn = nn.SmoothL1Loss(reduction="none")
 
     def train_step(self, state, action, reward, next_state, done, is_weights=None):
@@ -147,4 +151,3 @@ class DQNTrainer:
         torch.nn.utils.clip_grad_norm_(self.online_model.parameters(), GRAD_CLIP_NORM)
         self.optimizer.step()
         return float(loss.item()), td_errors.detach().abs().cpu().tolist()
-

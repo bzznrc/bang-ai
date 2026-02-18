@@ -1,21 +1,20 @@
 """Entity model for player and enemy agents."""
 
-import pygame
+from bang_ai.config import PLAYER_MOVE_SPEED, PLAYER_ROTATION_DEGREES, PROJECTILE_SPEED, SHOOT_COOLDOWN_FRAMES
+from bang_ai.runtime import Vec2, heading_to_vector
 
-from config import PLAYER_MOVE_SPEED, PLAYER_ROTATION_DEGREES, PROJECTILE_SPEED, SHOOT_COOLDOWN_FRAMES
-from bgds.utils import heading_to_vector
 
 class Actor:
     """A movable actor that can rotate and shoot projectiles."""
 
-    def __init__(self, position: pygame.Vector2, angle: float, team: str = "player"):
+    def __init__(self, position: Vec2, angle: float, team: str = "player"):
         self.position = position
         self.angle = angle
         self.cooldown_frames = 0
         self.is_alive = True
         self.team = team
 
-    def step_movement(self, move_forward: bool, move_backward: bool, rotate_left: bool, rotate_right: bool) -> pygame.Vector2:
+    def step_movement(self, move_forward: bool, move_backward: bool, rotate_left: bool, rotate_right: bool) -> Vec2:
         """Update heading and return a movement vector for this frame."""
         if rotate_left:
             self.angle = (self.angle + PLAYER_ROTATION_DEGREES) % 360
@@ -23,7 +22,7 @@ class Actor:
             self.angle = (self.angle - PLAYER_ROTATION_DEGREES) % 360
 
         direction = heading_to_vector(self.angle)
-        movement = pygame.Vector2(0, 0)
+        movement = Vec2(0, 0)
         if move_forward:
             movement += direction * PLAYER_MOVE_SPEED
         if move_backward:
@@ -47,4 +46,3 @@ class Actor:
         """Advance per-frame actor timers."""
         if self.cooldown_frames > 0:
             self.cooldown_frames -= 1
-

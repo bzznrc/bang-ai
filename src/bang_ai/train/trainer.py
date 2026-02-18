@@ -1,11 +1,20 @@
 """Main training loop and DQN agent implementation."""
 
-import random
+from __future__ import annotations
+
+if __package__ is None or __package__ == "":
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from collections import deque
+import logging
+import random
 
 import torch
 
-from config import (
+from bang_ai.config import (
     BATCH_SIZE,
     BEST_MODEL_MIN_EPISODES,
     CHECKPOINT_EVERY_STEPS,
@@ -33,7 +42,6 @@ from config import (
     PER_BETA_FRAMES,
     PER_BETA_START,
     PER_EPSILON,
-    PLOT_TRAINING,
     REPLAY_BUFFER_SIZE,
     RESUME_LEVEL,
     REWARD_ROLLING_WINDOW,
@@ -44,21 +52,13 @@ from config import (
     TOTAL_TRAINING_STEPS,
     TRAIN_EVERY_STEPS,
 )
-from bgds.visual.colors import COLOR_AQUA
-from bgds.utils import log_run_context
-from game_ai_env import TrainingGame
-from rl_model import DQNTrainer, build_loaded_q_network, device
+from bang_ai.runtime import log_run_context
+from bang_ai.runtime.helpers import configure_logging
+from bang_ai.train.env import TrainingGame
+from bang_ai.train.model import DQNTrainer, build_loaded_q_network, device
 
-def plot_training(avg_rewards):
-    import matplotlib.pyplot as plt
+LOGGER = logging.getLogger("bang_ai.train")
 
-    plt.clf()
-    plt.title("Training Progress")
-    plt.xlabel("Episodes")
-    plt.ylabel(f"Avg Reward ({REWARD_ROLLING_WINDOW} Episodes)")
-    plt.plot(avg_rewards, label="Avg Reward", color=tuple(c / 255 for c in COLOR_AQUA))
-    plt.legend()
-    plt.pause(0.01)
 
 def resolve_model_load_path():
     if LOAD_MODEL is False:
@@ -69,14 +69,16 @@ def resolve_model_load_path():
         return MODEL_CHECKPOINT_PATH
     raise ValueError('Invalid LOAD_MODEL value. Use False, "B", or "L".')
 
+
 def try_save_model(model, path: str, success_message: str):
     try:
         model.save(path)
     except RuntimeError as exc:
-        print(f"----- WARNING: save failed ({path}): {exc} -----")
+        LOGGER.warning("save failed (%s): %s", path, exc)
         return False
-    print(success_message)
+    LOGGER.info("%s", success_message)
     return True
+
 
 class SumTree:
     """Binary sum tree to sample proportional to priority in O(log N)."""
@@ -93,7 +95,6 @@ class SumTree:
         return self.tree[1]
 
     def add(self, priority, data):
-        # Store priority at leaf, then propagate the change up the tree.
         idx = self.write + self.capacity
         self.data[self.write] = data
         self.update(idx, priority)
@@ -102,7 +103,6 @@ class SumTree:
         return idx
 
     def update(self, idx, priority):
-        # Update a leaf, then fix all affected parent sums.
         change = priority - self.tree[idx]
         self.tree[idx] = priority
         while idx > 1:
@@ -110,7 +110,6 @@ class SumTree:
             self.tree[idx] += change
 
     def get(self, value):
-        # Traverse the tree to find the leaf matching a cumulative sum value.
         idx = 1
         while idx < self.capacity:
             left = idx * 2
@@ -121,6 +120,7 @@ class SumTree:
                 idx = left + 1
         data_idx = idx - self.capacity
         return idx, self.tree[idx], self.data[data_idx]
+
 
 class PrioritizedReplayBuffer:
     """PER with proportional prioritization and importance sampling."""
@@ -139,12 +139,10 @@ class PrioritizedReplayBuffer:
         return self.tree.size
 
     def add(self, transition):
-        # New samples get max priority so they are replayed at least once.
         priority = self.max_priority ** self.alpha
         return self.tree.add(priority, transition)
 
     def sample(self, batch_size):
-        # Sample proportional to priority using stratified segments.
         batch = []
         indices = []
         priorities = []
@@ -168,11 +166,11 @@ class PrioritizedReplayBuffer:
         return batch, indices, is_weights
 
     def update_priorities(self, indices, td_errors):
-        # Update priorities from latest TD errors so sampling stays informative.
         for idx, td_error in zip(indices, td_errors):
             priority = (abs(td_error) + self.epsilon) ** self.alpha
             self.tree.update(idx, priority)
             self.max_priority = max(self.max_priority, priority)
+
 
 class DQNAgent:
     """Replay-buffer DQN agent with target network synchronization."""
@@ -294,6 +292,7 @@ class DQNAgent:
             return boosted
         return False
 
+
 class PerformanceCurriculum:
     """Progress levels using rolling reward thresholds."""
 
@@ -338,7 +337,9 @@ class PerformanceCurriculum:
         self.consecutive_passes = 0
         return True
 
+
 def train():
+    configure_logging()
     reward_window = deque(maxlen=REWARD_ROLLING_WINDOW)
     average_rewards = []
 
@@ -392,17 +393,14 @@ def train():
             agent.remember(state_old, action, reward, state_new, done)
             episode_reward += reward
             agent.total_env_steps += 1
-            if (
-                agent.total_env_steps >= LEARN_START_STEPS
-                and agent.total_env_steps % TRAIN_EVERY_STEPS == 0
-            ):
+            if agent.total_env_steps >= LEARN_START_STEPS and agent.total_env_steps % TRAIN_EVERY_STEPS == 0:
                 for _ in range(GRADIENT_STEPS_PER_UPDATE):
                     loss = agent.train_long_memory()
                     if loss > 0.0:
                         episode_losses.append(loss)
 
             if agent.total_env_steps % CHECKPOINT_EVERY_STEPS == 0:
-                try_save_model(agent.online_model, MODEL_CHECKPOINT_PATH, "----- Model Saved (step checkpoint) -----")
+                try_save_model(agent.online_model, MODEL_CHECKPOINT_PATH, "Model Saved (step checkpoint)")
 
         agent.episodes_played += 1
         mean_loss = sum(episode_losses) / len(episode_losses) if episode_losses else 0.0
@@ -412,17 +410,19 @@ def train():
         average_rewards.append(avg_reward)
         exploration_boosted = agent.update_stagnation_state(episode_reward)
         if exploration_boosted:
-            print(f"----- Exploration Bump: Epsilon -> {agent.epsilon:.3f} -----")
+            LOGGER.info("Exploration bump: epsilon -> %.3f", agent.epsilon)
 
-        print(
-            f"Episode: {agent.episodes_played}\t"
-            f"Level: {curriculum.level}\t"
-            f"Frames: {game.frame_count}\t"
-            f"Reward: {episode_reward:.2f}\t"
-            f"Avg{REWARD_ROLLING_WINDOW}: {avg_reward:.2f}\t"
-            f"Best: {best_average_reward:.2f}\t"
-            f"Loss: {mean_loss:.4f}\t"
-            f"Epsilon: {agent.epsilon:.3f}"
+        LOGGER.info(
+            "Episode=%s Level=%s Frames=%s Reward=%.2f Avg%s=%.2f Best=%.2f Loss=%.4f Epsilon=%.3f",
+            agent.episodes_played,
+            curriculum.level,
+            game.frame_count,
+            episode_reward,
+            REWARD_ROLLING_WINDOW,
+            avg_reward,
+            best_average_reward,
+            mean_loss,
+            agent.epsilon,
         )
 
         rolling_ready = len(reward_window) == REWARD_ROLLING_WINDOW
@@ -430,24 +430,23 @@ def train():
             game.level = curriculum.level
             game.configure_level()
             agent.reset_epsilon_for_level_up()
-            print(f"----- LEVEL UP: {curriculum.level} -----")
+            LOGGER.info("LEVEL UP: %s", curriculum.level)
 
         if agent.episodes_played % EPISODE_CHECKPOINT_EVERY == 0:
-            try_save_model(agent.online_model, MODEL_CHECKPOINT_PATH, "----- Model Saved -----")
+            try_save_model(agent.online_model, MODEL_CHECKPOINT_PATH, "Model Saved")
 
         if agent.episodes_played >= BEST_MODEL_MIN_EPISODES and avg_reward > best_average_reward:
             best_average_reward = avg_reward
-            try_save_model(agent.online_model, MODEL_BEST_PATH, "----- New Best Model -----")
-
-        if PLOT_TRAINING:
-            plot_training(average_rewards)
+            try_save_model(agent.online_model, MODEL_BEST_PATH, "New Best Model")
 
         game.reset()
 
         if agent.total_env_steps >= TOTAL_TRAINING_STEPS:
-            print("----- Training step limit reached -----")
+            LOGGER.info("Training step limit reached")
             break
+
+    game.close()
+
 
 if __name__ == "__main__":
     train()
-

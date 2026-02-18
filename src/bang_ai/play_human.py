@@ -1,8 +1,14 @@
 """Human-play loop for the arena."""
 
-import pygame
+if __package__ is None or __package__ == "":
+    import sys
+    from pathlib import Path
 
-from config import (
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import arcade
+
+from bang_ai.config import (
     ACTION_MOVE_BACKWARD,
     ACTION_MOVE_FORWARD,
     ACTION_SHOOT,
@@ -15,8 +21,9 @@ from config import (
     SHOW_GAME,
     STARTING_LEVEL,
 )
-from game import BaseGame
-from bgds.utils import log_run_context
+from bang_ai.core import BaseGame
+from bang_ai.runtime import configure_logging, log_run_context
+
 
 class HumanGame(BaseGame):
     """Allows a human player to control the player agent."""
@@ -27,22 +34,17 @@ class HumanGame(BaseGame):
 
     def play_step(self):
         self.frame_count += 1
+        self.poll_events()
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                raise SystemExit
-
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_w]:
+        if self.window_controller.is_key_down(arcade.key.W):
             action = ACTION_MOVE_FORWARD
-        elif keys[pygame.K_s]:
+        elif self.window_controller.is_key_down(arcade.key.S):
             action = ACTION_MOVE_BACKWARD
-        elif keys[pygame.K_a]:
+        elif self.window_controller.is_key_down(arcade.key.A):
             action = ACTION_TURN_LEFT
-        elif keys[pygame.K_d]:
+        elif self.window_controller.is_key_down(arcade.key.D):
             action = ACTION_TURN_RIGHT
-        elif keys[pygame.K_SPACE]:
+        elif self.window_controller.is_key_down(arcade.key.SPACE):
             action = ACTION_SHOOT
         else:
             action = ACTION_WAIT
@@ -61,10 +63,12 @@ class HumanGame(BaseGame):
             self.p2_score += 1
             self.reset()
 
-        self.ui.render_frame()
-        self.clock.tick(FPS if SHOW_GAME else 0)
+        self.draw_frame()
+        self.frame_clock.tick(FPS if SHOW_GAME else 0)
 
-if __name__ == "__main__":
+
+def run_human() -> None:
+    configure_logging()
     game = HumanGame()
     log_run_context(
         "play-human",
@@ -74,6 +78,12 @@ if __name__ == "__main__":
             "level": game.level,
         },
     )
-    while True:
-        game.play_step()
+    try:
+        while True:
+            game.play_step()
+    finally:
+        game.close()
 
+
+if __name__ == "__main__":
+    run_human()

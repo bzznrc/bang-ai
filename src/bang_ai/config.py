@@ -1,38 +1,49 @@
 """Configuration values for the Bang RL project."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+import os
 from pathlib import Path
-import sys
 
-# Prefer local project modules when multiple game folders are on sys.path.
-_PROJECT_ROOT = Path(__file__).resolve().parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
-# Allow local workspace runs without installing bgds globally.
-_WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
-_BGDS_SRC = _WORKSPACE_ROOT / "bazza-game-design-system" / "src"
-if _BGDS_SRC.exists() and str(_BGDS_SRC) not in sys.path:
-    sys.path.insert(0, str(_BGDS_SRC))
-
-from bgds.boards.square import SQUARE_BOARD_STANDARD, SQUARE_CELL_RENDER_STANDARD
-from bgds.visual.typography import (
+from bang_ai.boards import SQUARE_BOARD_STANDARD, SQUARE_CELL_RENDER_STANDARD
+from bang_ai.visual import (
     FONT_FAMILY_DEFAULT,
     FONT_PATH_ROBOTO_REGULAR,
     FONT_SIZE_STATUS_COMPACT,
     STATUS_SEPARATOR_SLASH,
 )
 
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+@dataclass(frozen=True)
+class RuntimeFlags:
+    show_game: bool
+    use_gpu: bool
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+FLAGS = RuntimeFlags(
+    show_game=_env_flag("BANG_SHOW_GAME", True),
+    use_gpu=_env_flag("BANG_USE_GPU", False),
+)
+
 # Quick toggles
-SHOW_GAME = True
-PLOT_TRAINING = False
-USE_GPU = False
-LOAD_MODEL = "B" # Set to False, "B" (best), or "L" (last checkpoint)
+SHOW_GAME = FLAGS.show_game
+USE_GPU = FLAGS.use_gpu
+LOAD_MODEL = "B"  # Set to False, "B" (best), or "L" (last checkpoint)
 RESUME_LEVEL = 3
 PLAY_OPPONENT_LEVEL = 3
 
 # Runtime
 FPS = 60
-TRAINING_FPS = 0  # 0 lets pygame run unlocked for faster headless training
+TRAINING_FPS = 0
 WINDOW_TITLE = "Bang AI"
 
 # Arena dimensions
@@ -146,9 +157,9 @@ PROJECTILE_DISTANCE_MISSING = -1.0
 
 # Model and training
 MODEL_SUBDIR = "64_48"
-MODEL_DIR = f"model/{MODEL_SUBDIR}"
-MODEL_CHECKPOINT_PATH = f"{MODEL_DIR}/bang_dqn.pth"
-MODEL_BEST_PATH = f"{MODEL_DIR}/bang_dqn_best.pth"
+MODEL_DIR = PROJECT_ROOT / "model" / MODEL_SUBDIR
+MODEL_CHECKPOINT_PATH = str(MODEL_DIR / "bang_dqn.pth")
+MODEL_BEST_PATH = str(MODEL_DIR / "bang_dqn_best.pth")
 MODEL_SAVE_RETRIES = 5
 MODEL_SAVE_RETRY_DELAY_SECONDS = 0.2
 

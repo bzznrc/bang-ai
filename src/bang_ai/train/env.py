@@ -1,11 +1,9 @@
 """Training environment wrapping the arena with RL rewards."""
 
-from config import (
-    ACTION_SHOOT,
+from bang_ai.config import (
     ACTION_MOVE_BACKWARD,
     ACTION_MOVE_FORWARD,
-    ACTION_TURN_LEFT,
-    ACTION_TURN_RIGHT,
+    ACTION_SHOOT,
     FPS,
     MAX_EPISODE_STEPS,
     PENALTY_BAD_SHOT,
@@ -17,21 +15,24 @@ from config import (
     SHOW_GAME,
     TRAINING_FPS,
 )
-from game import BaseGame
+from bang_ai.core import BaseGame
+from bang_ai.runtime import length_squared
+
 
 class TrainingGame(BaseGame):
     """Environment used by DQN training."""
 
-    def __init__(self, level=1):
+    def __init__(self, level: int = 1):
         super().__init__(level=level)
 
     def play_step(self, action):
         self.frame_count += 1
         action_index = action.index(1) if 1 in action else 0
+        self.poll_events()
 
-        previous_position = self.player.position.copy()
+        previous_position = self.player.position
         self.apply_player_action(action_index)
-        blocked_move = (self.player.position - previous_position).length_squared() == 0
+        blocked_move = length_squared(self.player.position - previous_position) == 0
         self._step_enemy()
         projectile_events = self._step_projectiles()
 
@@ -73,8 +74,7 @@ class TrainingGame(BaseGame):
         elif self.frame_count >= MAX_EPISODE_STEPS:
             done = True
 
-        self.ui.render_frame()
-        self.clock.tick(FPS if SHOW_GAME else TRAINING_FPS)
+        self.draw_frame()
+        self.frame_clock.tick(FPS if SHOW_GAME else TRAINING_FPS)
 
         return reward, done, reward_breakdown
-
