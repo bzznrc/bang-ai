@@ -18,6 +18,7 @@ from bang_ai.config import (
     MODEL_CHECKPOINT_PATH,
     NUM_ACTIONS,
     PLAY_OPPONENT_LEVEL,
+    resolve_show_game,
 )
 from bang_ai.game import TrainingGame
 from bang_ai.logging_utils import configure_logging, log_run_context
@@ -30,7 +31,7 @@ class GameModelRunner:
     def __init__(self, model_path: str = MODEL_BEST_PATH):
         self.level = max(MIN_LEVEL, min(PLAY_OPPONENT_LEVEL, MAX_LEVEL))
         self.model_path = model_path
-        self.game = TrainingGame(level=self.level)
+        self.game = TrainingGame(level=self.level, show_game=resolve_show_game(default_value=True))
         self.model, _ = build_loaded_q_network(load_path=model_path, strict=True)
         self.model.eval()
 

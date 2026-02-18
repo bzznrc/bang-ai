@@ -64,7 +64,6 @@ from bang_ai.config import (
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
     SHOOT_COOLDOWN_FRAMES,
-    SHOW_GAME,
     SPAWN_Y_OFFSET,
     STARTING_LEVEL,
     TILE_SIZE,
@@ -191,7 +190,7 @@ class Renderer:
 
     def __init__(self, game, width: int, height: int, title: str, enabled: bool) -> None:
         self.game = game
-        self.enabled = bool(enabled and SHOW_GAME)
+        self.enabled = bool(enabled)
         self.width = int(width)
         self.height = int(height)
         self.font_name = _font_name()
@@ -311,16 +310,17 @@ class Renderer:
 class BaseGame:
     """Two-player top-down arena game logic."""
 
-    def __init__(self, level: int = 1):
+    def __init__(self, level: int = 1, show_game: bool = True):
         self.width = SCREEN_WIDTH
         self.height = SCREEN_HEIGHT
+        self.show_game = bool(show_game)
         self.frame_clock = ArcadeFrameClock()
         self.renderer = Renderer(
             game=self,
             width=self.width,
             height=self.height,
             title=WINDOW_TITLE,
-            enabled=SHOW_GAME,
+            enabled=self.show_game,
         )
         self.window_controller = self.renderer.window_controller
         self.window = self.renderer.window
@@ -734,9 +734,9 @@ class BaseGame:
 class HumanGame(BaseGame):
     """Human-play mode."""
 
-    def __init__(self):
+    def __init__(self, show_game: bool = True):
         level = max(MIN_LEVEL, min(STARTING_LEVEL, MAX_LEVEL))
-        super().__init__(level=level)
+        super().__init__(level=level, show_game=show_game)
 
     def play_step(self) -> None:
         self.frame_count += 1
@@ -770,7 +770,7 @@ class HumanGame(BaseGame):
             self.reset()
 
         self.draw_frame()
-        self.frame_clock.tick(FPS if SHOW_GAME else 0)
+        self.frame_clock.tick(FPS if self.show_game else 0)
 
 
 class TrainingGame(BaseGame):
@@ -826,6 +826,6 @@ class TrainingGame(BaseGame):
             done = True
 
         self.draw_frame()
-        self.frame_clock.tick(FPS if SHOW_GAME else TRAINING_FPS)
+        self.frame_clock.tick(FPS if self.show_game else TRAINING_FPS)
 
         return reward, done, reward_breakdown

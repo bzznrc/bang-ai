@@ -26,6 +26,10 @@ from bang_ai.logging_utils import get_torch_device
 
 
 device = get_torch_device(prefer_gpu=USE_GPU)
+INCOMPATIBLE_CHECKPOINT_MESSAGE = (
+    "ERROR: Incompatible model checkpoint for current network architecture. "
+    "HIDDEN_DIMENSIONS and checkpoint must match."
+)
 
 
 class DuelingQNetwork(nn.Module):
@@ -81,7 +85,11 @@ class DuelingQNetwork(nn.Module):
         ) from last_error
 
     def load(self, file_name: str) -> None:
-        self.load_state_dict(torch.load(file_name, map_location=device))
+        try:
+            self.load_state_dict(torch.load(file_name, map_location=device))
+        except RuntimeError:
+            print(INCOMPATIBLE_CHECKPOINT_MESSAGE)
+            raise SystemExit(1)
 
 
 def build_q_network() -> DuelingQNetwork:

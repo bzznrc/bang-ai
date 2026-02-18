@@ -51,6 +51,7 @@ from bang_ai.config import (
     TARGET_SYNC_EVERY,
     TOTAL_TRAINING_STEPS,
     TRAIN_EVERY_STEPS,
+    resolve_show_game,
 )
 from bang_ai.game import TrainingGame
 from bang_ai.logging_utils import configure_logging, log_run_context
@@ -345,7 +346,7 @@ def train() -> None:
     level = RESUME_LEVEL if RESUME_LEVEL is not None else STARTING_LEVEL
     level = max(MIN_LEVEL, min(level, MAX_LEVEL))
     curriculum = PerformanceCurriculum(level=level)
-    game = TrainingGame(level=curriculum.level)
+    game = TrainingGame(level=curriculum.level, show_game=resolve_show_game(default_value=False))
 
     if agent.loaded_model_path:
         model_status = agent.loaded_model_path

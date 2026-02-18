@@ -19,7 +19,6 @@ def _env_flag(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class RuntimeFlags:
-    show_game: bool
     use_gpu: bool
 
 
@@ -41,7 +40,6 @@ class BoardConfig:
 
 
 FLAGS = RuntimeFlags(
-    show_game=_env_flag("BANG_SHOW_GAME", True),
     use_gpu=_env_flag("BANG_USE_GPU", False),
 )
 
@@ -54,11 +52,17 @@ BOARD = BoardConfig(
 )
 
 # Quick toggles
-SHOW_GAME = FLAGS.show_game
+SHOW_GAME_OVERRIDE: bool | None = None
 USE_GPU = FLAGS.use_gpu
 LOAD_MODEL = "B"  # False, "B" (best), or "L" (last)
 RESUME_LEVEL = 3
 PLAY_OPPONENT_LEVEL = 3
+
+
+def resolve_show_game(default_value: bool) -> bool:
+    if SHOW_GAME_OVERRIDE is None:
+        return bool(default_value)
+    return SHOW_GAME_OVERRIDE
 
 # Runtime
 FPS = 60
@@ -124,6 +128,8 @@ ACTION_NAMES = [
 ]
 NUM_INPUT_FEATURES = len(INPUT_FEATURE_NAMES)
 NUM_ACTIONS = len(ACTION_NAMES)
+MODEL_INPUT_SIZE = NUM_INPUT_FEATURES
+MODEL_OUTPUT_SIZE = NUM_ACTIONS
 
 ACTION_MOVE_FORWARD = 0
 ACTION_MOVE_BACKWARD = 1
@@ -187,10 +193,12 @@ PROJECTILE_HITBOX_HALF = PROJECTILE_HITBOX_SIZE // 2
 PROJECTILE_DISTANCE_MISSING = -1.0
 
 # Model and training
-MODEL_SUBDIR = "64_48"
+HIDDEN_DIMENSIONS = [64, 48]
+MODEL_SUBDIR = "_".join(str(size) for size in HIDDEN_DIMENSIONS)
 MODEL_DIR = PROJECT_ROOT / "model" / MODEL_SUBDIR
-MODEL_CHECKPOINT_PATH = str(MODEL_DIR / "bang_dqn.pth")
-MODEL_BEST_PATH = str(MODEL_DIR / "bang_dqn_best.pth")
+MODEL_NAME = f"bang_{MODEL_SUBDIR}"
+MODEL_CHECKPOINT_PATH = str(MODEL_DIR / f"{MODEL_NAME}.pth")
+MODEL_BEST_PATH = str(MODEL_DIR / f"{MODEL_NAME}_best.pth")
 MODEL_SAVE_RETRIES = 5
 MODEL_SAVE_RETRY_DELAY_SECONDS = 0.2
 
@@ -222,8 +230,6 @@ BEST_MODEL_MIN_EPISODES = REWARD_ROLLING_WINDOW
 TARGET_SYNC_EVERY = 500
 GRAD_CLIP_NORM = 10.0
 
-HIDDEN_DIMENSIONS = [64, 48]
-
 # Replay-first training cadence
 LEARN_START_STEPS = 5_000
 TRAIN_EVERY_STEPS = 4
@@ -236,3 +242,11 @@ REWARD_HIT_ENEMY = 2.0
 PENALTY_TIME_STEP = -0.005
 PENALTY_BAD_SHOT = -0.1
 PENALTY_BLOCKED_MOVE = -0.1
+REWARD_COMPONENTS = {
+    "time_step": PENALTY_TIME_STEP,
+    "bad_shot": PENALTY_BAD_SHOT,
+    "blocked_move": PENALTY_BLOCKED_MOVE,
+    "hit_enemy": REWARD_HIT_ENEMY,
+    "win": REWARD_WIN,
+    "lose": PENALTY_LOSE,
+}

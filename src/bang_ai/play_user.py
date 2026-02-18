@@ -8,19 +8,20 @@ if __package__ in {None, ""}:
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bang_ai.config import FPS, SHOW_GAME
+from bang_ai.config import FPS, resolve_show_game
 from bang_ai.game import HumanGame
 from bang_ai.logging_utils import configure_logging, log_run_context
 
 
 def run_user() -> None:
     configure_logging()
-    game = HumanGame()
+    show_game = resolve_show_game(default_value=True)
+    game = HumanGame(show_game=show_game)
     log_run_context(
         "play-user",
         {
-            "render": SHOW_GAME,
-            "fps": FPS if SHOW_GAME else "unlocked",
+            "render": show_game,
+            "fps": FPS if show_game else "unlocked",
             "level": game.level,
         },
     )
