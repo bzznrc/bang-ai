@@ -1,4 +1,4 @@
-"""Logging and runtime helpers."""
+"""Logging and runtime utility helpers."""
 
 from __future__ import annotations
 
@@ -8,8 +8,6 @@ from typing import Any
 
 
 def configure_logging(level: str = "INFO") -> None:
-    """Configure process-wide logging once."""
-
     if logging.getLogger().handlers:
         return
     logging.basicConfig(
@@ -34,27 +32,19 @@ def _format_context_value(value: Any) -> str:
     return str(value)
 
 
-def _format_context_key(key: str) -> str:
-    return key.replace("_", " ").title()
-
-
 def _format_mode_label(mode: str) -> str:
     words = mode.replace("-", " ").split()
     formatted: list[str] = []
     for word in words:
-        if word.lower() == "ai":
-            formatted.append("AI")
-        else:
-            formatted.append(word.title())
+        formatted.append("AI" if word.lower() == "ai" else word.title())
     return " ".join(formatted)
 
 
 def log_run_context(mode: str, context: dict[str, Any]) -> None:
     mode_label = _format_mode_label(mode)
-    ordered_context = OrderedDict((key, value) for key, value in context.items() if value is not None)
+    ordered = OrderedDict((key, value) for key, value in context.items() if value is not None)
     segments = [mode_label]
     segments.extend(
-        f"{_format_context_key(key)}: {_format_context_value(value)}"
-        for key, value in ordered_context.items()
+        f"{key.replace('_', ' ').title()}: {_format_context_value(value)}" for key, value in ordered.items()
     )
     logging.getLogger("bang_ai.run").info(" / ".join(segments))

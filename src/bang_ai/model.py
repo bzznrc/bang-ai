@@ -1,4 +1,4 @@
-"""Neural network and trainer utilities for DQN."""
+"""Bang DQN model and trainer."""
 
 from __future__ import annotations
 
@@ -22,7 +22,8 @@ from bang_ai.config import (
     USE_GPU,
     WEIGHT_DECAY,
 )
-from bang_ai.runtime import get_torch_device
+from bang_ai.logging_utils import get_torch_device
+
 
 device = get_torch_device(prefer_gpu=USE_GPU)
 
@@ -32,7 +33,7 @@ class DuelingQNetwork(nn.Module):
 
     def __init__(self, input_size: int, hidden_sizes: list[int], output_size: int):
         super().__init__()
-        layers = []
+        layers: list[nn.Module] = []
         in_features = input_size
         for hidden in hidden_sizes:
             layers.extend([nn.Linear(in_features, hidden), nn.GELU()])
@@ -53,7 +54,7 @@ class DuelingQNetwork(nn.Module):
     def copy(self):
         return copy.deepcopy(self)
 
-    def save(self, file_name: str):
+    def save(self, file_name: str) -> None:
         directory = os.path.dirname(file_name) or "."
         os.makedirs(directory, exist_ok=True)
         temp_file = f"{file_name}.tmp.{os.getpid()}"
@@ -79,7 +80,7 @@ class DuelingQNetwork(nn.Module):
             f"Failed to save model to '{file_name}' after {MODEL_SAVE_RETRIES} attempts."
         ) from last_error
 
-    def load(self, file_name: str):
+    def load(self, file_name: str) -> None:
         self.load_state_dict(torch.load(file_name, map_location=device))
 
 
@@ -87,10 +88,7 @@ def build_q_network() -> DuelingQNetwork:
     return DuelingQNetwork(NUM_INPUT_FEATURES, HIDDEN_DIMENSIONS, NUM_ACTIONS).to(device)
 
 
-def build_loaded_q_network(
-    load_path: str | None = None,
-    strict: bool = False,
-) -> tuple[DuelingQNetwork, str | None]:
+def build_loaded_q_network(load_path: str | None = None, strict: bool = False) -> tuple[DuelingQNetwork, str | None]:
     model = build_q_network()
     loaded_path = None
     if load_path:
@@ -146,6 +144,7 @@ class DQNTrainer:
         if is_weights is not None:
             per_sample_loss = per_sample_loss * is_weights
         loss = per_sample_loss.mean()
+
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.online_model.parameters(), GRAD_CLIP_NORM)

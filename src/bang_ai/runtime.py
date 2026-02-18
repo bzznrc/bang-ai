@@ -1,14 +1,16 @@
-"""Arcade runtime helpers."""
+"""Arcade runtime and geometry helpers for Bang AI."""
 
 from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
+import math
 from pathlib import Path
 import time
-from typing import Iterable
+from typing import Any, Iterable
 
 import arcade
+from pyglet.math import Vec2
 from pyglet.window import key as pyglet_key
 
 
@@ -27,16 +29,16 @@ def load_font_once(font_path: str | Path) -> None:
 class ArcadeFrameClock:
     """Simple FPS limiter returning elapsed time in seconds."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._last = time.perf_counter()
 
     def tick(self, fps: int | float) -> float:
         now = time.perf_counter()
         elapsed = now - self._last
-        fps = float(fps)
+        fps_value = float(fps)
 
-        if fps > 0:
-            frame_time = 1.0 / fps
+        if fps_value > 0:
+            frame_time = 1.0 / fps_value
             if elapsed < frame_time:
                 time.sleep(frame_time - elapsed)
                 now = time.perf_counter()
@@ -55,7 +57,7 @@ class MousePress:
 
 
 class ArcadeWindowController:
-    """Small controller for polling events and keyboard state in Arcade."""
+    """Small wrapper for Arcade window and input polling."""
 
     def __init__(
         self,
@@ -66,7 +68,7 @@ class ArcadeWindowController:
         queue_input_events: bool = False,
         vsync: bool = False,
         visible: bool = True,
-    ):
+    ) -> None:
         self.width = int(width)
         self.height = int(height)
         self.enabled = bool(enabled)
@@ -93,10 +95,10 @@ class ArcadeWindowController:
         if self.queue_input_events:
             self.window.push_handlers(self)
 
-    def on_key_press(self, symbol: int, modifiers: int):
+    def on_key_press(self, symbol: int, modifiers: int) -> None:
         self._key_presses.append(symbol)
 
-    def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
+    def on_mouse_press(self, x: float, y: float, button: int, modifiers: int) -> None:
         self._mouse_presses.append(MousePress(x=x, y=y, button=button, modifiers=modifiers))
 
     def poll_events(self) -> bool:
@@ -157,7 +159,7 @@ class ArcadeWindowController:
 class TextCache:
     """Reusable cache of `arcade.Text` objects."""
 
-    def __init__(self, max_entries: int = 1024):
+    def __init__(self, max_entries: int = 1024) -> None:
         self.max_entries = max(1, int(max_entries))
         self._cache: OrderedDict[tuple, arcade.Text] = OrderedDict()
 
@@ -234,3 +236,128 @@ class TextCache:
         text_obj.x = float(x)
         text_obj.y = float(y)
         text_obj.draw()
+
+
+@dataclass(frozen=True)
+class Rect:
+    """Axis-aligned rectangle in top-left coordinate space."""
+
+    left: float
+    top: float
+    width: float
+    height: float
+
+    @property
+    def right(self) -> float:
+        return self.left + self.width
+
+    @property
+    def bottom(self) -> float:
+        return self.top + self.height
+
+    def colliderect(self, other: "Rect") -> bool:
+        return not (
+            self.right <= other.left
+            or self.left >= other.right
+            or self.bottom <= other.top
+            or self.top >= other.bottom
+        )
+
+
+def heading_to_vector(angle_degrees: float) -> Vec2:
+    radians = math.radians(angle_degrees)
+    return Vec2(math.cos(radians), math.sin(radians))
+
+
+def rotate_degrees(vector: Vec2, angle_degrees: float) -> Vec2:
+    return vector.rotate(math.radians(angle_degrees))
+
+
+def length_squared(vector: Vec2) -> float:
+    return vector.dot(vector)
+
+
+def rect_from_center(position: Vec2, size: int | float) -> Rect:
+    half = float(size) / 2.0
+    return Rect(position.x - half, position.y - half, float(size), float(size))
+
+
+def normalize_angle_degrees(angle: float) -> float:
+    return ((angle + 180.0) % 360.0) - 180.0
+
+
+def _obstacle_xy(obstacle: Any) -> tuple[float, float]:
+    if hasattr(obstacle, "x") and hasattr(obstacle, "y"):
+        return float(obstacle.x), float(obstacle.y)
+    if isinstance(obstacle, (tuple, list)) and len(obstacle) >= 2:
+        return float(obstacle[0]), float(obstacle[1])
+    raise TypeError(f"Unsupported obstacle type: {type(obstacle)!r}")
+
+
+def collides_with_square_arena(
+    rect: Rect,
+    obstacles: Iterable[Any],
+    tile_size: int,
+    arena_width: int,
+    arena_height: int,
+    bottom_bar_height: int,
+) -> bool:
+    if (
+        rect.left < 0
+        or rect.right > arena_width
+        or rect.top < 0
+        or rect.bottom > arena_height - bottom_bar_height
+    ):
+        return True
+
+    for obstacle in obstacles:
+        x, y = _obstacle_xy(obstacle)
+        obstacle_rect = Rect(x, y, tile_size, tile_size)
+        if rect.colliderect(obstacle_rect):
+            return True
+    return False
+
+
+def _line_intersects_rect(point_a: Vec2, point_b: Vec2, rect: Rect) -> bool:
+    x0, y0 = point_a.x, point_a.y
+    x1, y1 = point_b.x, point_b.y
+    dx = x1 - x0
+    dy = y1 - y0
+
+    p = (-dx, dx, -dy, dy)
+    q = (x0 - rect.left, rect.right - x0, y0 - rect.top, rect.bottom - y0)
+
+    u1 = 0.0
+    u2 = 1.0
+
+    for pi, qi in zip(p, q):
+        if pi == 0:
+            if qi < 0:
+                return False
+            continue
+
+        t = qi / pi
+        if pi < 0:
+            if t > u2:
+                return False
+            u1 = max(u1, t)
+        else:
+            if t < u1:
+                return False
+            u2 = min(u2, t)
+
+    return True
+
+
+def square_obstacle_between_points(
+    point_a: Vec2,
+    point_b: Vec2,
+    obstacles: Iterable[Any],
+    tile_size: int,
+) -> bool:
+    for obstacle in obstacles:
+        x, y = _obstacle_xy(obstacle)
+        obstacle_rect = Rect(x, y, tile_size, tile_size)
+        if _line_intersects_rect(point_a, point_b, obstacle_rect):
+            return True
+    return False

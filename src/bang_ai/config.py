@@ -1,4 +1,4 @@
-"""Configuration values for the Bang RL project."""
+"""Central configuration for Bang AI."""
 
 from __future__ import annotations
 
@@ -6,13 +6,8 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
-from bang_ai.boards import SQUARE_BOARD_STANDARD, SQUARE_CELL_RENDER_STANDARD
-from bang_ai.visual import (
-    FONT_FAMILY_DEFAULT,
-    FONT_PATH_ROBOTO_REGULAR,
-    FONT_SIZE_STATUS_COMPACT,
-    STATUS_SEPARATOR_SLASH,
-)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -28,16 +23,40 @@ class RuntimeFlags:
     use_gpu: bool
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+@dataclass(frozen=True)
+class BoardConfig:
+    columns: int
+    rows: int
+    cell_size_px: int
+    bottom_bar_height_px: int
+    cell_inset_px: int
+
+    @property
+    def screen_width_px(self) -> int:
+        return self.columns * self.cell_size_px
+
+    @property
+    def screen_height_px(self) -> int:
+        return self.rows * self.cell_size_px + self.bottom_bar_height_px
+
+
 FLAGS = RuntimeFlags(
     show_game=_env_flag("BANG_SHOW_GAME", True),
     use_gpu=_env_flag("BANG_USE_GPU", False),
 )
 
+BOARD = BoardConfig(
+    columns=32,
+    rows=24,
+    cell_size_px=20,
+    bottom_bar_height_px=30,
+    cell_inset_px=4,
+)
+
 # Quick toggles
 SHOW_GAME = FLAGS.show_game
 USE_GPU = FLAGS.use_gpu
-LOAD_MODEL = "B"  # Set to False, "B" (best), or "L" (last checkpoint)
+LOAD_MODEL = "B"  # False, "B" (best), or "L" (last)
 RESUME_LEVEL = 3
 PLAY_OPPONENT_LEVEL = 3
 
@@ -47,20 +66,32 @@ TRAINING_FPS = 0
 WINDOW_TITLE = "Bang AI"
 
 # Arena dimensions
-GRID_WIDTH_TILES = SQUARE_BOARD_STANDARD.columns
-GRID_HEIGHT_TILES = SQUARE_BOARD_STANDARD.rows
-TILE_SIZE = SQUARE_BOARD_STANDARD.cell_size_px
-BB_HEIGHT = SQUARE_BOARD_STANDARD.bottom_bar_height_px
-SCREEN_WIDTH = SQUARE_BOARD_STANDARD.screen_width_px
-SCREEN_HEIGHT = SQUARE_BOARD_STANDARD.screen_height_px
-CELL_INSET = SQUARE_CELL_RENDER_STANDARD.inset_px
-CELL_INSET_DOUBLE = SQUARE_CELL_RENDER_STANDARD.inset_double_px
+GRID_WIDTH_TILES = BOARD.columns
+GRID_HEIGHT_TILES = BOARD.rows
+TILE_SIZE = BOARD.cell_size_px
+BB_HEIGHT = BOARD.bottom_bar_height_px
+SCREEN_WIDTH = BOARD.screen_width_px
+SCREEN_HEIGHT = BOARD.screen_height_px
+CELL_INSET = BOARD.cell_inset_px
+CELL_INSET_DOUBLE = CELL_INSET * 2
 
 # Rendering
-FONT_NAME_BAR = FONT_FAMILY_DEFAULT
-FONT_PATH_REGULAR = FONT_PATH_ROBOTO_REGULAR
-FONT_SIZE_BAR = FONT_SIZE_STATUS_COMPACT
-UI_STATUS_SEPARATOR = STATUS_SEPARATOR_SLASH
+FONT_FAMILY_DEFAULT: str | None = None
+FONT_PATH_ROBOTO_REGULAR = "fonts/Roboto-Regular.ttf"
+FONT_SIZE_BAR = 18
+UI_STATUS_SEPARATOR = "   /   "
+
+# Colors
+COLOR_AQUA = (102, 212, 200)
+COLOR_DEEP_TEAL = (38, 110, 105)
+COLOR_CORAL = (244, 137, 120)
+COLOR_BRICK_RED = (150, 62, 54)
+COLOR_SLATE_GRAY = (97, 101, 107)
+COLOR_FOG_GRAY = (230, 231, 235)
+COLOR_CHARCOAL = (28, 30, 36)
+COLOR_NEAR_BLACK = (18, 18, 22)
+COLOR_SOFT_WHITE = (238, 238, 242)
+COLOR_AMBER = (255, 224, 130)
 
 # Input/output spaces
 INPUT_FEATURE_NAMES = [
@@ -148,7 +179,7 @@ SAFE_RADIUS = 100
 MIN_OBSTACLE_SECTIONS = 2
 MAX_OBSTACLE_SECTIONS = 5
 
-# Collision / Sensing
+# Collision / sensing
 PROJECTILE_TRAJECTORY_DOT_THRESHOLD = 0.98
 OBSTACLE_START_ATTEMPTS = 100
 PROJECTILE_HITBOX_SIZE = 10

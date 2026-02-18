@@ -1,6 +1,8 @@
 """Run a trained model in the arena for quick evaluation."""
 
-if __package__ is None or __package__ == "":
+from __future__ import annotations
+
+if __package__ in {None, ""}:
     import sys
     from pathlib import Path
 
@@ -17,9 +19,9 @@ from bang_ai.config import (
     NUM_ACTIONS,
     PLAY_OPPONENT_LEVEL,
 )
-from bang_ai.runtime import configure_logging, log_run_context
-from bang_ai.train.env import TrainingGame
-from bang_ai.train.model import build_loaded_q_network, device
+from bang_ai.game import TrainingGame
+from bang_ai.logging_utils import configure_logging, log_run_context
+from bang_ai.model import build_loaded_q_network, device
 
 
 class GameModelRunner:
@@ -32,7 +34,7 @@ class GameModelRunner:
         self.model, _ = build_loaded_q_network(load_path=model_path, strict=True)
         self.model.eval()
 
-    def select_action(self, state):
+    def select_action(self, state) -> list[int]:
         with torch.no_grad():
             q_values = self.model(torch.tensor(state, dtype=torch.float32, device=device))
             action_idx = int(torch.argmax(q_values).item())
@@ -40,7 +42,7 @@ class GameModelRunner:
         action[action_idx] = 1
         return action
 
-    def run(self, episodes: int = 10):
+    def run(self, episodes: int = 10) -> None:
         log_run_context(
             "play-ai",
             {
@@ -64,7 +66,7 @@ class GameModelRunner:
         print(f"Model win rate: {wins}/{episodes} ({(wins / episodes) * 100:.1f}%)")
 
 
-def run_ai(episodes: int = 10):
+def run_ai(episodes: int = 10) -> None:
     configure_logging()
     try:
         runner = GameModelRunner(MODEL_BEST_PATH)
