@@ -44,8 +44,8 @@ FLAGS = RuntimeFlags(
 )
 
 BOARD = BoardConfig(
-    columns=32,
-    rows=24,
+    columns= 48, #32,
+    rows= 32, #24,
     cell_size_px=20,
     bottom_bar_height_px=30,
     cell_inset_px=4,
@@ -110,37 +110,49 @@ INPUT_FEATURE_NAMES = [
     "nearest_projectile_relative_angle_cos",
     "delta_projectile_distance",
     "in_projectile_trajectory",
-    "forward_blocked",
-    "left_blocked",
-    "right_blocked",
-    "last_action_index",
     "time_since_last_shot",
     "time_since_last_seen_enemy",
     "time_since_last_projectile_seen",
+    "up_blocked",
+    "down_blocked",
+    "left_blocked",
+    "right_blocked",
+    "player_angle_sin",
+    "player_angle_cos",
+    "move_intent_x",
+    "move_intent_y",
+    "aim_intent",
+    "last_action_index",
 ]
 ACTION_NAMES = [
-    "move_forward",
-    "move_backward",
-    "turn_left",
-    "turn_right",
+    "move_up",
+    "move_down",
+    "move_left",
+    "move_right",
+    "stop_move",
+    "aim_left",
+    "aim_right",
     "shoot",
-    "wait",
 ]
 NUM_INPUT_FEATURES = len(INPUT_FEATURE_NAMES)
 NUM_ACTIONS = len(ACTION_NAMES)
+STATE_SIZE = NUM_INPUT_FEATURES
+ACTION_SIZE = NUM_ACTIONS
 MODEL_INPUT_SIZE = NUM_INPUT_FEATURES
 MODEL_OUTPUT_SIZE = NUM_ACTIONS
 
-ACTION_MOVE_FORWARD = 0
-ACTION_MOVE_BACKWARD = 1
-ACTION_TURN_LEFT = 2
-ACTION_TURN_RIGHT = 3
-ACTION_SHOOT = 4
-ACTION_WAIT = 5
+ACTION_MOVE_UP = 0
+ACTION_MOVE_DOWN = 1
+ACTION_MOVE_LEFT = 2
+ACTION_MOVE_RIGHT = 3
+ACTION_STOP_MOVE = 4
+ACTION_AIM_LEFT = 5
+ACTION_AIM_RIGHT = 6
+ACTION_SHOOT = 7
 
 # Gameplay tuning
 PLAYER_MOVE_SPEED = 5
-PLAYER_ROTATION_DEGREES = 5
+AIM_RATE_PER_STEP = 5
 PROJECTILE_SPEED = 10
 SHOOT_COOLDOWN_FRAMES = 30
 AIM_TOLERANCE_DEGREES = 10
@@ -180,7 +192,7 @@ LEVEL_SETTINGS = {
 ENEMY_STUCK_MOVE_ATTEMPTS = 2
 ENEMY_ESCAPE_FOLLOW_FRAMES = 16
 ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES = (90, -90, 180)
-SPAWN_Y_OFFSET = 80
+SPAWN_Y_OFFSET = 180
 SAFE_RADIUS = 100
 MIN_OBSTACLE_SECTIONS = 2
 MAX_OBSTACLE_SECTIONS = 5
@@ -202,7 +214,7 @@ MODEL_BEST_PATH = str(MODEL_DIR / f"{MODEL_NAME}_best.pth")
 MODEL_SAVE_RETRIES = 5
 MODEL_SAVE_RETRY_DELAY_SECONDS = 0.2
 
-TOTAL_TRAINING_STEPS = 4_000_000
+TOTAL_TRAINING_STEPS = 40_000_000
 CHECKPOINT_EVERY_STEPS = 100_000
 
 REPLAY_BUFFER_SIZE = 150_000
@@ -218,9 +230,9 @@ PER_EPSILON = 1e-4
 EPSILON_START_SCRATCH = 1.0
 EPSILON_START_RESUME = 0.25
 EPSILON_MIN = 0.05
-EPSILON_DECAY_EPISODES = 1_000
+EPSILON_DECAY_EPISODES = 10_000
 EPSILON_STAGNATION_BOOST = 0.05
-EPSILON_EXPLORATION_CAP = 0.5
+EPSILON_EXPLORATION_CAP = 0.25
 EPSILON_LEVEL_UP_RESET = 0.25
 STAGNATION_WINDOW = REWARD_ROLLING_WINDOW
 PATIENCE = 25

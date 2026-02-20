@@ -22,13 +22,13 @@ from bang_ai.config import (
     USE_GPU,
     WEIGHT_DECAY,
 )
-from bang_ai.logging_utils import get_torch_device
+from bang_ai.logging_utils import format_display_path, get_torch_device
 
 
 device = get_torch_device(prefer_gpu=USE_GPU)
 INCOMPATIBLE_CHECKPOINT_MESSAGE = (
-    "ERROR: Incompatible model checkpoint for current network architecture. "
-    "HIDDEN_DIMENSIONS and checkpoint must match."
+    "Incompatible model checkpoint for current network architecture "
+    "(input/output size or hidden dimensions mismatch)."
 )
 
 
@@ -85,11 +85,7 @@ class DuelingQNetwork(nn.Module):
         ) from last_error
 
     def load(self, file_name: str) -> None:
-        try:
-            self.load_state_dict(torch.load(file_name, map_location=device))
-        except RuntimeError:
-            print(INCOMPATIBLE_CHECKPOINT_MESSAGE)
-            raise SystemExit(1)
+        self.load_state_dict(torch.load(file_name, map_location=device))
 
 
 def build_q_network() -> DuelingQNetwork:
@@ -101,10 +97,20 @@ def build_loaded_q_network(load_path: str | None = None, strict: bool = False) -
     loaded_path = None
     if load_path:
         if os.path.exists(load_path):
-            model.load(load_path)
-            loaded_path = load_path
+            try:
+                model.load(load_path)
+            except RuntimeError:
+                if strict:
+                    print(INCOMPATIBLE_CHECKPOINT_MESSAGE)
+                    raise
+                print(
+                    f"WARNING: {INCOMPATIBLE_CHECKPOINT_MESSAGE} "
+                    f"Ignoring '{format_display_path(load_path)}'."
+                )
+            else:
+                loaded_path = load_path
         elif strict:
-            raise FileNotFoundError(load_path)
+            raise FileNotFoundError(format_display_path(load_path))
     return model, loaded_path
 
 

@@ -54,7 +54,7 @@ from bang_ai.config import (
     resolve_show_game,
 )
 from bang_ai.game import TrainingGame
-from bang_ai.logging_utils import configure_logging, log_run_context
+from bang_ai.logging_utils import configure_logging, format_display_path, log_key_values, log_run_context
 from bang_ai.model import DQNTrainer, build_loaded_q_network, device
 
 LOGGER = logging.getLogger("bang_ai.train")
@@ -74,7 +74,7 @@ def try_save_model(model, path: str, success_message: str) -> bool:
     try:
         model.save(path)
     except RuntimeError as exc:
-        LOGGER.warning("save failed (%s): %s", path, exc)
+        LOGGER.warning("save failed (%s): %s", format_display_path(path), exc)
         return False
     LOGGER.info("%s", success_message)
     return True
@@ -402,19 +402,26 @@ def train() -> None:
         avg_reward = sum(reward_window) / len(reward_window)
         exploration_boosted = agent.update_stagnation_state(episode_reward)
         if exploration_boosted:
-            LOGGER.info("Exploration bump: epsilon -> %.3f", agent.epsilon)
+            log_key_values(
+                LOGGER.name,
+                {
+                    "Event": "Exploration Bump",
+                    "Epsilon": f"{agent.epsilon:.3f}",
+                },
+            )
 
-        LOGGER.info(
-            "Episode=%s Level=%s Frames=%s Reward=%.2f Avg%s=%.2f Best=%.2f Loss=%.4f Epsilon=%.3f",
-            agent.episodes_played,
-            curriculum.level,
-            game.frame_count,
-            episode_reward,
-            REWARD_ROLLING_WINDOW,
-            avg_reward,
-            best_average_reward,
-            mean_loss,
-            agent.epsilon,
+        log_key_values(
+            LOGGER.name,
+            {
+                "Episode": agent.episodes_played,
+                "Level": curriculum.level,
+                "Frames": game.frame_count,
+                "Reward": f"{episode_reward:.2f}",
+                f"Avg{REWARD_ROLLING_WINDOW}": f"{avg_reward:.2f}",
+                "Best": f"{best_average_reward:.2f}",
+                "Loss": f"{mean_loss:.4f}",
+                "Epsilon": f"{agent.epsilon:.3f}",
+            },
         )
 
         rolling_ready = len(reward_window) == REWARD_ROLLING_WINDOW
@@ -422,7 +429,13 @@ def train() -> None:
             game.level = curriculum.level
             game.configure_level()
             agent.reset_epsilon_for_level_up()
-            LOGGER.info("LEVEL UP: %s", curriculum.level)
+            log_key_values(
+                LOGGER.name,
+                {
+                    "Event": "Level Up",
+                    "Level": curriculum.level,
+                },
+            )
 
         if agent.episodes_played % EPISODE_CHECKPOINT_EVERY == 0:
             try_save_model(agent.online_model, MODEL_CHECKPOINT_PATH, "Model Saved")
@@ -434,7 +447,13 @@ def train() -> None:
         game.reset()
 
         if agent.total_env_steps >= TOTAL_TRAINING_STEPS:
-            LOGGER.info("Training step limit reached")
+            log_key_values(
+                LOGGER.name,
+                {
+                    "Event": "Training Step Limit Reached",
+                    "Steps": agent.total_env_steps,
+                },
+            )
             break
 
     game.close()

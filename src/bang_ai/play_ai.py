@@ -21,7 +21,7 @@ from bang_ai.config import (
     resolve_show_game,
 )
 from bang_ai.game import TrainingGame
-from bang_ai.logging_utils import configure_logging, log_run_context
+from bang_ai.logging_utils import configure_logging, format_display_path, log_run_context
 from bang_ai.model import build_loaded_q_network, device
 
 
@@ -69,10 +69,17 @@ class GameModelRunner:
 
 def run_ai(episodes: int = 10) -> None:
     configure_logging()
+    runner = None
     try:
         runner = GameModelRunner(MODEL_BEST_PATH)
-    except FileNotFoundError:
-        runner = GameModelRunner(MODEL_CHECKPOINT_PATH)
+    except (FileNotFoundError, RuntimeError):
+        try:
+            runner = GameModelRunner(MODEL_CHECKPOINT_PATH)
+        except (FileNotFoundError, RuntimeError):
+            raise FileNotFoundError(
+                "No compatible model found at "
+                f"'{format_display_path(MODEL_BEST_PATH)}' or '{format_display_path(MODEL_CHECKPOINT_PATH)}'."
+            )
     runner.run(episodes=episodes)
 
 

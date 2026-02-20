@@ -18,6 +18,11 @@ python -m bang_ai.play_ai
 python -m bang_ai.train_ai
 ```
 
+## Human Controls
+- Move (absolute world frame): `W` up, `S` down, `A` left, `D` right
+- Aim (sticky rotate): `Q`/`Left Arrow` = aim left, `E`/`Right Arrow` = aim right
+- Shoot: left mouse click or `Space`
+
 ## Project Layout
 - `src/bang_ai/config.py`: central configuration and constants
 - `src/bang_ai/game.py`: arena logic, rendering, and game modes
@@ -28,7 +33,7 @@ python -m bang_ai.train_ai
 - `src/bang_ai/runtime.py`: arcade runtime and geometry helpers
 
 ## RL Inputs/Outputs
-- State input size: `18`
+- State input size: `24`
 - State feature 1: `enemy_distance`
 - State feature 2: `enemy_in_los`
 - State feature 3: `enemy_relative_angle_sin`
@@ -40,25 +45,33 @@ python -m bang_ai.train_ai
 - State feature 9: `nearest_projectile_relative_angle_cos`
 - State feature 10: `delta_projectile_distance`
 - State feature 11: `in_projectile_trajectory`
-- State feature 12: `forward_blocked`
-- State feature 13: `left_blocked`
-- State feature 14: `right_blocked`
-- State feature 15: `last_action_index`
-- State feature 16: `time_since_last_shot`
-- State feature 17: `time_since_last_seen_enemy`
-- State feature 18: `time_since_last_projectile_seen`
-- Action output size: `6` (one-hot)
-- Action 1: `move_forward`
-- Action 2: `move_backward`
-- Action 3: `turn_left`
-- Action 4: `turn_right`
-- Action 5: `shoot`
-- Action 6: `wait`
+- State feature 12: `time_since_last_shot`
+- State feature 13: `time_since_last_seen_enemy`
+- State feature 14: `time_since_last_projectile_seen`
+- State feature 15: `up_blocked`
+- State feature 16: `down_blocked`
+- State feature 17: `left_blocked`
+- State feature 18: `right_blocked`
+- State feature 19: `player_angle_sin`
+- State feature 20: `player_angle_cos`
+- State feature 21: `move_intent_x`
+- State feature 22: `move_intent_y`
+- State feature 23: `aim_intent`
+- State feature 24: `last_action_index` (raw action id `0..7`)
+- Action output size: `8` (one-hot)
+- Action 1: `move_up`
+- Action 2: `move_down`
+- Action 3: `move_left`
+- Action 4: `move_right`
+- Action 5: `stop_move`
+- Action 6: `aim_left`
+- Action 7: `aim_right`
+- Action 8: `shoot`
 - Reward component: `time_step = -0.005`
 - Reward component: `bad_shot = -0.1`
 - Reward component: `blocked_move = -0.1`
 - Reward component: `hit_enemy = +2.0`
 - Reward component: `win = +20.0`
 - Reward component: `lose = -10.0`
-- Model input tensor shape: `(..., 18)`
-- Model output tensor shape: `(..., 6)`
+- Model input tensor shape: `(..., 24)`
+- Model output tensor shape: `(..., 8)`

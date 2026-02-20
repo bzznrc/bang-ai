@@ -78,6 +78,9 @@ class ArcadeWindowController:
         self._key_state: pyglet_key.KeyStateHandler | None = None
         self._key_presses: list[int] = []
         self._mouse_presses: list[MousePress] = []
+        self._mouse_buttons_down: set[int] = set()
+        self._mouse_x: float | None = None
+        self._mouse_y: float | None = None
 
         if not self.enabled:
             return
@@ -92,14 +95,42 @@ class ArcadeWindowController:
         )
         self._key_state = pyglet_key.KeyStateHandler()
         self.window.push_handlers(self._key_state)
-        if self.queue_input_events:
-            self.window.push_handlers(self)
+        # Always attach event handlers so mouse position/button state is available.
+        self.window.push_handlers(self)
 
     def on_key_press(self, symbol: int, modifiers: int) -> None:
-        self._key_presses.append(symbol)
+        if self.queue_input_events:
+            self._key_presses.append(symbol)
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int) -> None:
-        self._mouse_presses.append(MousePress(x=x, y=y, button=button, modifiers=modifiers))
+        self._mouse_x = float(x)
+        self._mouse_y = float(y)
+        self._mouse_buttons_down.add(int(button))
+        if self.queue_input_events:
+            self._mouse_presses.append(MousePress(x=x, y=y, button=button, modifiers=modifiers))
+
+    def on_mouse_release(self, x: float, y: float, button: int, modifiers: int) -> None:
+        self._mouse_x = float(x)
+        self._mouse_y = float(y)
+        self._mouse_buttons_down.discard(int(button))
+
+    def on_mouse_motion(self, x: float, y: float, dx: float, dy: float) -> None:
+        del dx, dy
+        self._mouse_x = float(x)
+        self._mouse_y = float(y)
+
+    def on_mouse_drag(
+        self,
+        x: float,
+        y: float,
+        dx: float,
+        dy: float,
+        buttons: int,
+        modifiers: int,
+    ) -> None:
+        del dx, dy, buttons, modifiers
+        self._mouse_x = float(x)
+        self._mouse_y = float(y)
 
     def poll_events(self) -> bool:
         if self.window is None:
@@ -127,6 +158,16 @@ class ArcadeWindowController:
             return False
         return bool(self._key_state[symbol])
 
+    def is_mouse_button_down(self, button: int) -> bool:
+        if self.window is None:
+            return False
+        return int(button) in self._mouse_buttons_down
+
+    def mouse_position(self) -> tuple[float, float] | None:
+        if self.window is None or self._mouse_x is None or self._mouse_y is None:
+            return None
+        return self._mouse_x, self._mouse_y
+
     def clear(self, color: tuple[int, int, int] | tuple[int, int, int, int]) -> None:
         if self.window is None:
             return
@@ -145,6 +186,9 @@ class ArcadeWindowController:
         self._key_state = None
         self._key_presses = []
         self._mouse_presses = []
+        self._mouse_buttons_down = set()
+        self._mouse_x = None
+        self._mouse_y = None
 
     def to_arcade_y(self, y_top: float) -> float:
         return float(self.height) - float(y_top)
