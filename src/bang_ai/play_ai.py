@@ -69,10 +69,16 @@ class GameModelRunner:
 
 def run_ai(episodes: int = 10) -> None:
     configure_logging()
+    runner = None
     try:
         runner = GameModelRunner(MODEL_BEST_PATH)
-    except FileNotFoundError:
-        runner = GameModelRunner(MODEL_CHECKPOINT_PATH)
+    except (FileNotFoundError, RuntimeError):
+        try:
+            runner = GameModelRunner(MODEL_CHECKPOINT_PATH)
+        except (FileNotFoundError, RuntimeError):
+            raise FileNotFoundError(
+                f"No compatible model found at '{MODEL_BEST_PATH}' or '{MODEL_CHECKPOINT_PATH}'."
+            )
     runner.run(episodes=episodes)
 
 

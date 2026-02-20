@@ -23,6 +23,7 @@ def run_user() -> None:
             "render": show_game,
             "fps": FPS if show_game else "unlocked",
             "level": game.level,
+            "controls": "WASD absolute + Q/E aim + LMB/Space shoot",
         },
     )
     try:

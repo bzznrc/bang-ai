@@ -10,12 +10,15 @@ import arcade
 
 from bang_ai.assets import resolve_font_path
 from bang_ai.config import (
-    ACTION_MOVE_BACKWARD,
-    ACTION_MOVE_FORWARD,
+    ACTION_AIM_LEFT,
+    ACTION_AIM_RIGHT,
+    ACTION_MOVE_DOWN,
+    ACTION_MOVE_LEFT,
+    ACTION_MOVE_RIGHT,
+    ACTION_MOVE_UP,
     ACTION_SHOOT,
-    ACTION_TURN_LEFT,
-    ACTION_TURN_RIGHT,
-    ACTION_WAIT,
+    ACTION_STOP_MOVE,
+    AIM_RATE_PER_STEP,
     AIM_TOLERANCE_DEGREES,
     BB_HEIGHT,
     CELL_INSET,
@@ -45,14 +48,12 @@ from bang_ai.config import (
     MAX_OBSTACLE_SECTIONS,
     MIN_LEVEL,
     MIN_OBSTACLE_SECTIONS,
-    NUM_ACTIONS,
     OBSTACLE_START_ATTEMPTS,
     PENALTY_BAD_SHOT,
     PENALTY_BLOCKED_MOVE,
     PENALTY_LOSE,
     PENALTY_TIME_STEP,
     PLAYER_MOVE_SPEED,
-    PLAYER_ROTATION_DEGREES,
     PLAYER_SPAWN_X_RATIO,
     PROJECTILE_DISTANCE_MISSING,
     PROJECTILE_HITBOX_SIZE,
@@ -154,19 +155,16 @@ class Actor:
         self.is_alive = True
         self.team = team
 
-    def step_movement(self, move_forward: bool, move_backward: bool, rotate_left: bool, rotate_right: bool) -> Vec2:
-        if rotate_left:
-            self.angle = (self.angle + PLAYER_ROTATION_DEGREES) % 360
-        if rotate_right:
-            self.angle = (self.angle - PLAYER_ROTATION_DEGREES) % 360
+        # Sticky controller state: persists across environment steps.
+        self.move_intent_x = 0
+        self.move_intent_y = 0
+        self.aim_intent = 0
 
-        direction = heading_to_vector(self.angle)
-        movement = Vec2(0, 0)
-        if move_forward:
-            movement += direction * PLAYER_MOVE_SPEED
-        if move_backward:
-            movement -= direction * PLAYER_MOVE_SPEED
-        return movement
+    def step_sticky_intents(self) -> Vec2:
+        self.angle = (self.angle + self.aim_intent * AIM_RATE_PER_STEP) % 360
+        # Game coordinates are top-left origin, so world +Y maps to screen-up (negative local Y).
+        movement = Vec2(float(self.move_intent_x), float(-self.move_intent_y))
+        return movement * PLAYER_MOVE_SPEED
 
     def shoot(self):
         if self.cooldown_frames > 0:
@@ -359,7 +357,7 @@ class BaseGame:
         self.obstacles: list[Vec2] = []
         self.projectiles: list[dict[str, object]] = []
         self.frame_count = 0
-        self.last_action_index = 0
+        self.last_action_index = ACTION_STOP_MOVE
         self.frames_since_last_shot = SHOOT_COOLDOWN_FRAMES
         self.previous_enemy_distance = None
         self.previous_enemy_relative_angle = None
@@ -388,20 +386,53 @@ class BaseGame:
         min_y, max_y = self._spawn_y_bounds()
         return Vec2(self.width * x_ratio, random.uniform(min_y, max_y))
 
-    def apply_player_action(self, action_index: int) -> None:
-        self.last_action_index = action_index
-        move_forward = action_index == ACTION_MOVE_FORWARD
-        move_backward = action_index == ACTION_MOVE_BACKWARD
-        rotate_left = action_index == ACTION_TURN_LEFT
-        rotate_right = action_index == ACTION_TURN_RIGHT
+    def _player_attempts_translation(self) -> bool:
+        return self.player.move_intent_x != 0 or self.player.move_intent_y != 0
 
-        movement = self.player.step_movement(move_forward, move_backward, rotate_left, rotate_right)
-        self._update_actor_position(self.player, movement)
-
+    def _apply_action_to_player_intents(self, action_index: int) -> bool:
+        if action_index == ACTION_MOVE_UP:
+            self.player.move_intent_x = 0
+            self.player.move_intent_y = 1
+            return False
+        if action_index == ACTION_MOVE_DOWN:
+            self.player.move_intent_x = 0
+            self.player.move_intent_y = -1
+            return False
+        if action_index == ACTION_MOVE_LEFT:
+            self.player.move_intent_x = -1
+            self.player.move_intent_y = 0
+            return False
+        if action_index == ACTION_MOVE_RIGHT:
+            self.player.move_intent_x = 1
+            self.player.move_intent_y = 0
+            return False
+        if action_index == ACTION_STOP_MOVE:
+            self.player.move_intent_x = 0
+            self.player.move_intent_y = 0
+            return False
+        if action_index == ACTION_AIM_LEFT:
+            self.player.aim_intent = -1
+            return False
+        if action_index == ACTION_AIM_RIGHT:
+            self.player.aim_intent = 1
+            return False
         if action_index == ACTION_SHOOT:
             projectile = self.player.shoot()
             if projectile:
                 self.projectiles.append(projectile)
+                return True
+        return False
+
+    def apply_player_action(self, action_index: int | None) -> None:
+        shot_fired = False
+        if action_index is not None:
+            self.last_action_index = int(action_index)
+            shot_fired = self._apply_action_to_player_intents(self.last_action_index)
+
+        movement = self.player.step_sticky_intents()
+        self._update_actor_position(self.player, movement)
+
+        if shot_fired:
             self.frames_since_last_shot = 0
         else:
             self.frames_since_last_shot += 1
@@ -697,15 +728,15 @@ class BaseGame:
 
         time_since_last_projectile_seen = self._update_projectile_seen_timer(projectile_in_perception)
 
-        forward_dir = rotate_degrees(Vec2(1, 0), self.player.angle).normalize()
-        left_dir = rotate_degrees(forward_dir, -90)
-        right_dir = rotate_degrees(forward_dir, 90)
+        up_blocked = 1.0 if self._would_collide(self.player, Vec2(0, -PLAYER_MOVE_SPEED)) else 0.0
+        down_blocked = 1.0 if self._would_collide(self.player, Vec2(0, PLAYER_MOVE_SPEED)) else 0.0
+        left_blocked = 1.0 if self._would_collide(self.player, Vec2(-PLAYER_MOVE_SPEED, 0)) else 0.0
+        right_blocked = 1.0 if self._would_collide(self.player, Vec2(PLAYER_MOVE_SPEED, 0)) else 0.0
+        player_angle_radians = math.radians(self.player.angle)
+        player_angle_sin = math.sin(player_angle_radians)
+        player_angle_cos = math.cos(player_angle_radians)
 
-        forward_blocked = 1.0 if self._would_collide(self.player, forward_dir * PLAYER_MOVE_SPEED) else 0.0
-        left_blocked = 1.0 if self._would_collide(self.player, left_dir * PLAYER_MOVE_SPEED) else 0.0
-        right_blocked = 1.0 if self._would_collide(self.player, right_dir * PLAYER_MOVE_SPEED) else 0.0
-
-        last_action = float(self.last_action_index) / max(1, NUM_ACTIONS - 1)
+        last_action = float(self.last_action_index)
         time_since_last_shot = min(1.0, self.frames_since_last_shot / max(1, SHOOT_COOLDOWN_FRAMES))
 
         feature_values = {
@@ -720,13 +751,19 @@ class BaseGame:
             "nearest_projectile_relative_angle_cos": projectile_relative_cos,
             "delta_projectile_distance": delta_projectile_distance,
             "in_projectile_trajectory": 1.0 if self.is_player_in_projectile_trajectory() else 0.0,
-            "forward_blocked": forward_blocked,
-            "left_blocked": left_blocked,
-            "right_blocked": right_blocked,
-            "last_action_index": last_action,
             "time_since_last_shot": time_since_last_shot,
             "time_since_last_seen_enemy": time_since_last_seen_enemy,
             "time_since_last_projectile_seen": time_since_last_projectile_seen,
+            "up_blocked": up_blocked,
+            "down_blocked": down_blocked,
+            "left_blocked": left_blocked,
+            "right_blocked": right_blocked,
+            "player_angle_sin": player_angle_sin,
+            "player_angle_cos": player_angle_cos,
+            "move_intent_x": float(self.player.move_intent_x),
+            "move_intent_y": float(self.player.move_intent_y),
+            "aim_intent": float(self.player.aim_intent),
+            "last_action_index": last_action,
         }
         return self._build_state_vector_from_features(feature_values)
 
@@ -742,18 +779,64 @@ class HumanGame(BaseGame):
         self.frame_count += 1
         self.poll_events()
 
-        if self.window_controller.is_key_down(arcade.key.W):
-            action = ACTION_MOVE_FORWARD
-        elif self.window_controller.is_key_down(arcade.key.S):
-            action = ACTION_MOVE_BACKWARD
-        elif self.window_controller.is_key_down(arcade.key.A):
-            action = ACTION_TURN_LEFT
-        elif self.window_controller.is_key_down(arcade.key.D):
-            action = ACTION_TURN_RIGHT
-        elif self.window_controller.is_key_down(arcade.key.SPACE):
-            action = ACTION_SHOOT
+        move_up = self.window_controller.is_key_down(arcade.key.W)
+        move_down = self.window_controller.is_key_down(arcade.key.S)
+        move_left = self.window_controller.is_key_down(arcade.key.A)
+        move_right = self.window_controller.is_key_down(arcade.key.D)
+
+        if move_up and not move_down:
+            self.player.move_intent_x = 0
+            self.player.move_intent_y = 1
+            movement_action = ACTION_MOVE_UP
+        elif move_down and not move_up:
+            self.player.move_intent_x = 0
+            self.player.move_intent_y = -1
+            movement_action = ACTION_MOVE_DOWN
+        elif move_left and not move_right:
+            self.player.move_intent_x = -1
+            self.player.move_intent_y = 0
+            movement_action = ACTION_MOVE_LEFT
+        elif move_right and not move_left:
+            self.player.move_intent_x = 1
+            self.player.move_intent_y = 0
+            movement_action = ACTION_MOVE_RIGHT
         else:
-            action = ACTION_WAIT
+            self.player.move_intent_x = 0
+            self.player.move_intent_y = 0
+            movement_action = ACTION_STOP_MOVE
+
+        # Prefer mouse/touchpad aiming in human mode.
+        mouse_pos = self.window_controller.mouse_position()
+        if mouse_pos is not None:
+            mouse_x, mouse_y_arcade = mouse_pos
+            mouse_y = self.window_controller.to_top_left_y(mouse_y_arcade)
+            to_cursor = Vec2(mouse_x, mouse_y) - self.player.position
+            if length_squared(to_cursor) > 0:
+                self.player.angle = math.degrees(math.atan2(to_cursor.y, to_cursor.x)) % 360
+            self.player.aim_intent = 0
+            self.last_action_index = movement_action
+        else:
+            aim_left = self.window_controller.is_key_down(arcade.key.Q) or self.window_controller.is_key_down(
+                arcade.key.LEFT
+            )
+            aim_right = self.window_controller.is_key_down(arcade.key.E) or self.window_controller.is_key_down(
+                arcade.key.RIGHT
+            )
+            if aim_left and not aim_right:
+                self.player.aim_intent = -1
+                self.last_action_index = ACTION_AIM_LEFT
+            elif aim_right and not aim_left:
+                self.player.aim_intent = 1
+                self.last_action_index = ACTION_AIM_RIGHT
+            else:
+                self.last_action_index = movement_action
+
+        shoot_pressed = self.window_controller.is_key_down(arcade.key.SPACE) or self.window_controller.is_mouse_button_down(
+            arcade.MOUSE_BUTTON_LEFT
+        )
+        action = ACTION_SHOOT if shoot_pressed else None
+        if shoot_pressed:
+            self.last_action_index = ACTION_SHOOT
 
         self.apply_player_action(action)
         self._step_enemy()
@@ -783,7 +866,7 @@ class TrainingGame(BaseGame):
 
         previous_position = self.player.position
         self.apply_player_action(action_index)
-        blocked_move = length_squared(self.player.position - previous_position) == 0
+        blocked_move = self._player_attempts_translation() and length_squared(self.player.position - previous_position) == 0
         self._step_enemy()
         projectile_events = self._step_projectiles()
 
@@ -803,7 +886,8 @@ class TrainingGame(BaseGame):
         if action_index == ACTION_SHOOT and not self.has_line_of_sight():
             reward += PENALTY_BAD_SHOT
             reward_breakdown["bad_shot"] = PENALTY_BAD_SHOT
-        elif action_index in (ACTION_MOVE_FORWARD, ACTION_MOVE_BACKWARD) and blocked_move:
+
+        if blocked_move:
             reward += PENALTY_BLOCKED_MOVE
             reward_breakdown["blocked_move"] = PENALTY_BLOCKED_MOVE
 
