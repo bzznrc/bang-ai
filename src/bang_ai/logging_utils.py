@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from bang_ai.utils import PROJECT_ROOT
 
 
 def configure_logging(level: str = "INFO") -> None:

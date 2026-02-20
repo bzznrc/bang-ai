@@ -18,11 +18,12 @@ from bang_ai.config import (
     MODEL_CHECKPOINT_PATH,
     NUM_ACTIONS,
     PLAY_OPPONENT_LEVEL,
-    resolve_show_game,
+    SHOW_GAME_OVERRIDE,
 )
 from bang_ai.game import TrainingGame
 from bang_ai.logging_utils import configure_logging, format_display_path, log_run_context
 from bang_ai.model import build_loaded_q_network, device
+from bang_ai.utils import resolve_show_game
 
 
 class GameModelRunner:
@@ -31,7 +32,11 @@ class GameModelRunner:
     def __init__(self, model_path: str = MODEL_BEST_PATH):
         self.level = max(MIN_LEVEL, min(PLAY_OPPONENT_LEVEL, MAX_LEVEL))
         self.model_path = model_path
-        self.game = TrainingGame(level=self.level, show_game=resolve_show_game(default_value=True))
+        self.game = TrainingGame(
+            level=self.level,
+            show_game=resolve_show_game(SHOW_GAME_OVERRIDE, default_value=True),
+            end_on_player_death=False,
+        )
         self.model, _ = build_loaded_q_network(load_path=model_path, strict=True)
         self.model.eval()
 
@@ -61,7 +66,7 @@ class GameModelRunner:
                 state = self.game.get_state_vector()
                 action = self.select_action(state)
                 _, done, _ = self.game.play_step(action)
-            if not self.game.enemy.is_alive and self.game.player.is_alive:
+            if self.game.is_player_last_alive():
                 wins += 1
         self.game.close()
         print(f"Model win rate: {wins}/{episodes} ({(wins / episodes) * 100:.1f}%)")

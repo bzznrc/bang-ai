@@ -2,67 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-import os
-from pathlib import Path
+from bang_ai.utils import PROJECT_ROOT, env_flag
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _env_flag(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-@dataclass(frozen=True)
-class RuntimeFlags:
-    use_gpu: bool
-
-
-@dataclass(frozen=True)
-class BoardConfig:
-    columns: int
-    rows: int
-    cell_size_px: int
-    bottom_bar_height_px: int
-    cell_inset_px: int
-
-    @property
-    def screen_width_px(self) -> int:
-        return self.columns * self.cell_size_px
-
-    @property
-    def screen_height_px(self) -> int:
-        return self.rows * self.cell_size_px + self.bottom_bar_height_px
-
-
-FLAGS = RuntimeFlags(
-    use_gpu=_env_flag("BANG_USE_GPU", False),
-)
-
-BOARD = BoardConfig(
-    columns= 48, #32,
-    rows= 32, #24,
-    cell_size_px=20,
-    bottom_bar_height_px=30,
-    cell_inset_px=4,
-)
+BOARD_COLUMNS = 48
+BOARD_ROWS = 32
+BOARD_CELL_SIZE_PX = 20
+BOARD_BOTTOM_BAR_HEIGHT_PX = 30
+BOARD_CELL_INSET_PX = 4
 
 # Quick toggles
 SHOW_GAME_OVERRIDE: bool | None = None
-USE_GPU = FLAGS.use_gpu
+USE_GPU = env_flag("BANG_USE_GPU", False)
 LOAD_MODEL = "B"  # False, "B" (best), or "L" (last)
+# Set to None to start from STARTING_LEVEL, or set an explicit level in [MIN_LEVEL, MAX_LEVEL].
 RESUME_LEVEL = 3
-PLAY_OPPONENT_LEVEL = 3
-
-
-def resolve_show_game(default_value: bool) -> bool:
-    if SHOW_GAME_OVERRIDE is None:
-        return bool(default_value)
-    return SHOW_GAME_OVERRIDE
+PLAY_OPPONENT_LEVEL = 5
 
 # Runtime
 FPS = 60
@@ -70,13 +24,13 @@ TRAINING_FPS = 0
 WINDOW_TITLE = "Bang AI"
 
 # Arena dimensions
-GRID_WIDTH_TILES = BOARD.columns
-GRID_HEIGHT_TILES = BOARD.rows
-TILE_SIZE = BOARD.cell_size_px
-BB_HEIGHT = BOARD.bottom_bar_height_px
-SCREEN_WIDTH = BOARD.screen_width_px
-SCREEN_HEIGHT = BOARD.screen_height_px
-CELL_INSET = BOARD.cell_inset_px
+GRID_WIDTH_TILES = BOARD_COLUMNS
+GRID_HEIGHT_TILES = BOARD_ROWS
+TILE_SIZE = BOARD_CELL_SIZE_PX
+BB_HEIGHT = BOARD_BOTTOM_BAR_HEIGHT_PX
+SCREEN_WIDTH = GRID_WIDTH_TILES * TILE_SIZE
+SCREEN_HEIGHT = GRID_HEIGHT_TILES * TILE_SIZE + BB_HEIGHT
+CELL_INSET = BOARD_CELL_INSET_PX
 CELL_INSET_DOUBLE = CELL_INSET * 2
 
 # Rendering
@@ -96,6 +50,12 @@ COLOR_CHARCOAL = (28, 30, 36)
 COLOR_NEAR_BLACK = (18, 18, 22)
 COLOR_SOFT_WHITE = (238, 238, 242)
 COLOR_AMBER = (255, 224, 130)
+
+# P3 and P4
+COLOR_P3_BLUE = (66, 133, 244)        # Google Blue 500
+COLOR_P3_NAVY = (26, 92, 173)         # Deep Blue
+COLOR_P4_PURPLE = (171, 71, 188)      # Material Purple 500
+COLOR_P4_DEEP_PURPLE = (123, 31, 162) # Deep Purple 700
 
 # Input/output spaces
 INPUT_FEATURE_NAMES = [
@@ -164,31 +124,49 @@ ENEMY_SPAWN_X_RATIO = 7 / 8
 # Enemy behavior / curriculum
 MIN_LEVEL = 1
 STARTING_LEVEL = 1
-MAX_LEVEL = 3
+MAX_LEVEL = 5
 REWARD_ROLLING_WINDOW = 100
-CURRICULUM_REWARD_THRESHOLDS = [8.0, 6.0]
+CURRICULUM_REWARD_THRESHOLDS = [8.0, 8.0, 6.0, 6.0]
 CURRICULUM_CONSECUTIVE_CHECKS = 5
 CURRICULUM_MIN_EPISODES_PER_LEVEL = 100
 LEVEL_SETTINGS = {
     1: {
+        "num_players": 2,
         "num_obstacles": 4,
         "enemy_move_probability": 0.00,
-        "enemy_shot_error_choices": [-20, -10, 0, 10, 20],
-        "enemy_shoot_probability": 0.05,
+        "enemy_shot_error_choices": [-24, -12, 0, 12, 24],
+        "enemy_shoot_probability": 0.04,
     },
     2: {
-        "num_obstacles": 8,
-        "enemy_move_probability": 0.20,
-        "enemy_shot_error_choices": [-12, -6, 0, 6, 12],
-        "enemy_shoot_probability": 0.05,
+        "num_players": 2,
+        "num_obstacles": 6,
+        "enemy_move_probability": 0.10,
+        "enemy_shot_error_choices": [-20, -10, 0, 10, 20],
+        "enemy_shoot_probability": 0.06,
     },
     3: {
+        "num_players": 2,
+        "num_obstacles": 8,
+        "enemy_move_probability": 0.20,
+        "enemy_shot_error_choices": [-16, -8, 0, 8, 16],
+        "enemy_shoot_probability": 0.08,
+    },
+    4: {
+        "num_players": 3,
+        "num_obstacles": 10,
+        "enemy_move_probability": 0.20,
+        "enemy_shot_error_choices": [-12, -6, 0, 6, 12],
+        "enemy_shoot_probability": 0.10,
+    },
+    5: {
+        "num_players": 4,
         "num_obstacles": 12,
         "enemy_move_probability": 0.20,
         "enemy_shot_error_choices": [-8, -4, 0, 4, 8],
-        "enemy_shoot_probability": 0.10,
+        "enemy_shoot_probability": 0.12,
     },
 }
+
 ENEMY_STUCK_MOVE_ATTEMPTS = 2
 ENEMY_ESCAPE_FOLLOW_FRAMES = 16
 ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES = (90, -90, 180)
@@ -250,7 +228,7 @@ GRADIENT_STEPS_PER_UPDATE = 1
 # Reward shaping
 REWARD_WIN = 20.0
 PENALTY_LOSE = -10.0
-REWARD_HIT_ENEMY = 2.0
+REWARD_HIT_ENEMY = 5.0
 PENALTY_TIME_STEP = -0.005
 PENALTY_BAD_SHOT = -0.1
 PENALTY_BLOCKED_MOVE = -0.1

@@ -8,14 +8,15 @@ if __package__ in {None, ""}:
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bang_ai.config import FPS, resolve_show_game
+from bang_ai.config import FPS, SHOW_GAME_OVERRIDE
 from bang_ai.game import HumanGame
 from bang_ai.logging_utils import configure_logging, log_run_context
+from bang_ai.utils import resolve_show_game
 
 
 def run_user() -> None:
     configure_logging()
-    show_game = resolve_show_game(default_value=True)
+    show_game = resolve_show_game(SHOW_GAME_OVERRIDE, default_value=True)
     game = HumanGame(show_game=show_game)
     log_run_context(
         "play-user",

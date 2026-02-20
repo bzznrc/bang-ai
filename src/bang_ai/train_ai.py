@@ -45,19 +45,33 @@ from bang_ai.config import (
     REPLAY_BUFFER_SIZE,
     RESUME_LEVEL,
     REWARD_ROLLING_WINDOW,
+    SHOW_GAME_OVERRIDE,
     STAGNATION_IMPROVEMENT_THRESHOLD,
     STAGNATION_WINDOW,
     STARTING_LEVEL,
     TARGET_SYNC_EVERY,
     TOTAL_TRAINING_STEPS,
     TRAIN_EVERY_STEPS,
-    resolve_show_game,
 )
 from bang_ai.game import TrainingGame
 from bang_ai.logging_utils import configure_logging, format_display_path, log_key_values, log_run_context
 from bang_ai.model import DQNTrainer, build_loaded_q_network, device
+from bang_ai.utils import resolve_show_game
 
 LOGGER = logging.getLogger("bang_ai.train")
+
+
+def resolve_training_start_level(resume_level: int | None) -> int:
+    if resume_level is None:
+        level = int(STARTING_LEVEL)
+    else:
+        level = int(resume_level)
+    if not (MIN_LEVEL <= level <= MAX_LEVEL):
+        raise ValueError(
+            f"Training start level must be in [{MIN_LEVEL}, {MAX_LEVEL}], got {level}. "
+            "Set RESUME_LEVEL accordingly (or None to use STARTING_LEVEL)."
+        )
+    return level
 
 
 def resolve_model_load_path() -> str | None:
@@ -343,10 +357,12 @@ def train() -> None:
     reward_window = deque(maxlen=REWARD_ROLLING_WINDOW)
 
     agent = DQNAgent()
-    level = RESUME_LEVEL if RESUME_LEVEL is not None else STARTING_LEVEL
-    level = max(MIN_LEVEL, min(level, MAX_LEVEL))
+    level = resolve_training_start_level(RESUME_LEVEL)
     curriculum = PerformanceCurriculum(level=level)
-    game = TrainingGame(level=curriculum.level, show_game=resolve_show_game(default_value=False))
+    game = TrainingGame(
+        level=curriculum.level,
+        show_game=resolve_show_game(SHOW_GAME_OVERRIDE, default_value=False),
+    )
 
     if agent.loaded_model_path:
         model_status = agent.loaded_model_path
