@@ -44,8 +44,8 @@ FLAGS = RuntimeFlags(
 )
 
 BOARD = BoardConfig(
-    columns=32,
-    rows=24,
+    columns= 48, #32,
+    rows= 32, #24,
     cell_size_px=20,
     bottom_bar_height_px=30,
     cell_inset_px=4,
@@ -192,7 +192,7 @@ LEVEL_SETTINGS = {
 ENEMY_STUCK_MOVE_ATTEMPTS = 2
 ENEMY_ESCAPE_FOLLOW_FRAMES = 16
 ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES = (90, -90, 180)
-SPAWN_Y_OFFSET = 80
+SPAWN_Y_OFFSET = 180
 SAFE_RADIUS = 100
 MIN_OBSTACLE_SECTIONS = 2
 MAX_OBSTACLE_SECTIONS = 5

@@ -22,7 +22,7 @@ from bang_ai.config import (
     USE_GPU,
     WEIGHT_DECAY,
 )
-from bang_ai.logging_utils import get_torch_device
+from bang_ai.logging_utils import format_display_path, get_torch_device
 
 
 device = get_torch_device(prefer_gpu=USE_GPU)
@@ -103,11 +103,14 @@ def build_loaded_q_network(load_path: str | None = None, strict: bool = False) -
                 if strict:
                     print(INCOMPATIBLE_CHECKPOINT_MESSAGE)
                     raise
-                print(f"WARNING: {INCOMPATIBLE_CHECKPOINT_MESSAGE} Ignoring '{load_path}'.")
+                print(
+                    f"WARNING: {INCOMPATIBLE_CHECKPOINT_MESSAGE} "
+                    f"Ignoring '{format_display_path(load_path)}'."
+                )
             else:
                 loaded_path = load_path
         elif strict:
-            raise FileNotFoundError(load_path)
+            raise FileNotFoundError(format_display_path(load_path))
     return model, loaded_path
 
 

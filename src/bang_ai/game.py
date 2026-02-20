@@ -348,11 +348,18 @@ class BaseGame:
         self.enemy_shoot_probability = settings["enemy_shoot_probability"]
 
     def reset(self) -> None:
-        player_pos = self._sample_spawn_position(PLAYER_SPAWN_X_RATIO)
-        enemy_pos = self._sample_spawn_position(ENEMY_SPAWN_X_RATIO)
+        if random.random() < 0.5:
+            player_x_ratio = PLAYER_SPAWN_X_RATIO
+            enemy_x_ratio = ENEMY_SPAWN_X_RATIO
+        else:
+            player_x_ratio = ENEMY_SPAWN_X_RATIO
+            enemy_x_ratio = PLAYER_SPAWN_X_RATIO
 
-        self.player = Actor(player_pos, angle=0, team="player")
-        self.enemy = Actor(enemy_pos, angle=180, team="enemy")
+        player_pos = self._sample_spawn_position(player_x_ratio)
+        enemy_pos = self._sample_spawn_position(enemy_x_ratio)
+
+        self.player = Actor(player_pos, angle=self._sample_inner_facing_angle(player_pos.x), team="player")
+        self.enemy = Actor(enemy_pos, angle=self._sample_inner_facing_angle(enemy_pos.x), team="enemy")
 
         self.obstacles: list[Vec2] = []
         self.projectiles: list[dict[str, object]] = []
@@ -385,6 +392,11 @@ class BaseGame:
     def _sample_spawn_position(self, x_ratio: float) -> Vec2:
         min_y, max_y = self._spawn_y_bounds()
         return Vec2(self.width * x_ratio, random.uniform(min_y, max_y))
+
+    def _sample_inner_facing_angle(self, x_position: float) -> float:
+        center_x = self.width / 2.0
+        facing_center = 0.0 if x_position <= center_x else 180.0
+        return (facing_center + random.uniform(-90.0, 90.0)) % 360.0
 
     def _player_attempts_translation(self) -> bool:
         return self.player.move_intent_x != 0 or self.player.move_intent_y != 0
