@@ -43,21 +43,21 @@ python -m bang_ai.train_ai
 - State feature 7: `nearest_projectile_distance`
 - State feature 8: `nearest_projectile_relative_angle_sin`
 - State feature 9: `nearest_projectile_relative_angle_cos`
-- State feature 10: `delta_projectile_distance`
-- State feature 11: `in_projectile_trajectory`
-- State feature 12: `time_since_last_shot`
-- State feature 13: `time_since_last_seen_enemy`
-- State feature 14: `time_since_last_projectile_seen`
-- State feature 15: `up_blocked`
-- State feature 16: `down_blocked`
-- State feature 17: `left_blocked`
-- State feature 18: `right_blocked`
-- State feature 19: `player_angle_sin`
-- State feature 20: `player_angle_cos`
-- State feature 21: `move_intent_x`
-- State feature 22: `move_intent_y`
-- State feature 23: `aim_intent`
-- State feature 24: `last_action_index` (raw action id `0..7`)
+- State feature 10: `in_projectile_trajectory`
+- State feature 11: `time_since_last_shot`
+- State feature 12: `time_since_last_seen_enemy`
+- State feature 13: `up_blocked`
+- State feature 14: `down_blocked`
+- State feature 15: `left_blocked`
+- State feature 16: `right_blocked`
+- State feature 17: `player_angle_sin`
+- State feature 18: `player_angle_cos`
+- State feature 19: `move_intent_x`
+- State feature 20: `move_intent_y`
+- State feature 21: `aim_intent`
+- State feature 22: `ally_distance`
+- State feature 23: `ally_relative_angle_sin`
+- State feature 24: `ally_relative_angle_cos`
 - Action output size: `8` (one-hot)
 - Action 1: `move_up`
 - Action 2: `move_down`
@@ -68,9 +68,9 @@ python -m bang_ai.train_ai
 - Action 7: `aim_right`
 - Action 8: `shoot`
 - Reward component: `time_step = -0.005`
-- Reward component: `bad_shot = -0.1`
 - Reward component: `blocked_move = -0.1`
-- Reward component: `hit_enemy = +2.0`
+- Reward component: `hit_enemy = +5.0`
+- Reward component: `friendly_fire = -5.0`
 - Reward component: `win = +20.0`
 - Reward component: `lose = -10.0`
 - Model input tensor shape: `(..., 24)`

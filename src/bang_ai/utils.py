@@ -49,3 +49,8 @@ def validate_level_settings(
             raise ValueError(
                 f"LEVEL_SETTINGS[{level}]['num_players'] must be one of {sorted(allowed_counts)}, got {players}"
             )
+        if "num_allies" not in settings:
+            raise ValueError(f"LEVEL_SETTINGS[{level}] is missing required key 'num_allies'")
+        allies = int(settings["num_allies"])
+        if allies < 0:
+            raise ValueError(f"LEVEL_SETTINGS[{level}]['num_allies'] must be >= 0, got {allies}")

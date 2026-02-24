@@ -17,6 +17,7 @@ from bang_ai.config import (
     MODEL_BEST_PATH,
     MODEL_CHECKPOINT_PATH,
     NUM_ACTIONS,
+    PLAY_NN_CONTROLS_ALLIES,
     PLAY_OPPONENT_LEVEL,
     SHOW_GAME_OVERRIDE,
 )
@@ -36,6 +37,7 @@ class GameModelRunner:
             level=self.level,
             show_game=resolve_show_game(SHOW_GAME_OVERRIDE, default_value=True),
             end_on_player_death=False,
+            control_allies_with_nn=PLAY_NN_CONTROLS_ALLIES,
         )
         self.model, _ = build_loaded_q_network(load_path=model_path, strict=True)
         self.model.eval()
@@ -63,9 +65,12 @@ class GameModelRunner:
             self.game.reset()
             done = False
             while not done:
-                state = self.game.get_state_vector()
-                action = self.select_action(state)
-                _, done, _ = self.game.play_step(action)
+                states = self.game.get_controlled_state_vectors()
+                actions = {
+                    actor_id: self.select_action(state)
+                    for actor_id, state in states.items()
+                }
+                _, done, _ = self.game.play_step(actions)
             if self.game.is_player_last_alive():
                 wins += 1
         self.game.close()

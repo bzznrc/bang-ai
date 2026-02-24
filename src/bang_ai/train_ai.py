@@ -29,6 +29,7 @@ from bang_ai.config import (
     EPSILON_STAGNATION_BOOST,
     EPSILON_START_RESUME,
     EPSILON_START_SCRATCH,
+    ENABLE_OBS_NORM,
     GRADIENT_STEPS_PER_UPDATE,
     LEARN_START_STEPS,
     LOAD_MODEL,
@@ -37,11 +38,14 @@ from bang_ai.config import (
     MODEL_BEST_PATH,
     MODEL_CHECKPOINT_PATH,
     NUM_ACTIONS,
+    NUM_INPUT_FEATURES,
+    OBS_NORM_EPS,
     PATIENCE,
     PER_ALPHA,
     PER_BETA_FRAMES,
     PER_BETA_START,
     PER_EPSILON,
+    REWARD_COMPONENTS,
     REPLAY_BUFFER_SIZE,
     RESUME_LEVEL,
     REWARD_ROLLING_WINDOW,
@@ -52,6 +56,7 @@ from bang_ai.config import (
     TARGET_SYNC_EVERY,
     TOTAL_TRAINING_STEPS,
     TRAIN_EVERY_STEPS,
+    TRAINING_LOG_REWARD_BREAKDOWN,
 )
 from bang_ai.game import TrainingGame
 from bang_ai.logging_utils import configure_logging, format_display_path, log_key_values, log_run_context
@@ -186,6 +191,39 @@ class PrioritizedReplayBuffer:
             self.max_priority = max(self.max_priority, priority)
 
 
+class RunningObservationNormalizer:
+    """Numerically stable running mean/std normalization for fixed-size observations."""
+
+    def __init__(self, size: int, eps: float):
+        self.size = int(size)
+        self.eps = float(eps)
+        self.count = 0
+        self.mean = torch.zeros(self.size, dtype=torch.float64)
+        self.m2 = torch.zeros(self.size, dtype=torch.float64)
+
+    def update(self, observation: list[float]) -> None:
+        x = torch.as_tensor(observation, dtype=torch.float64)
+        if x.numel() != self.size:
+            return
+        self.count += 1
+        delta = x - self.mean
+        self.mean += delta / float(self.count)
+        delta2 = x - self.mean
+        self.m2 += delta * delta2
+
+    def normalize(self, observation: list[float]) -> list[float]:
+        x = torch.as_tensor(observation, dtype=torch.float64)
+        if x.numel() != self.size:
+            return [float(value) for value in observation]
+        if self.count > 1:
+            variance = self.m2 / float(self.count - 1)
+        else:
+            variance = torch.zeros(self.size, dtype=torch.float64)
+        std = torch.sqrt(variance + self.eps)
+        normalized = (x - self.mean) / std
+        return [float(value) for value in normalized.tolist()]
+
+
 class DQNAgent:
     """Replay-buffer DQN agent with target network synchronization."""
 
@@ -206,6 +244,11 @@ class DQNAgent:
             epsilon=PER_EPSILON,
         )
         self.total_env_steps = 0
+        self.obs_normalizer = (
+            RunningObservationNormalizer(NUM_INPUT_FEATURES, OBS_NORM_EPS)
+            if ENABLE_OBS_NORM
+            else None
+        )
 
         load_path = resolve_model_load_path()
         self.requested_model_path = load_path
@@ -219,8 +262,22 @@ class DQNAgent:
         self.trainer = DQNTrainer(self.online_model, self.target_model)
         self.training_steps = 0
 
+    def _normalize_observation(self, state_vector: list[float], update_stats: bool) -> list[float]:
+        state = [float(value) for value in state_vector]
+        if self.obs_normalizer is None:
+            return state
+        if update_stats:
+            self.obs_normalizer.update(state)
+        return self.obs_normalizer.normalize(state)
+
     def get_state(self, game: TrainingGame) -> list[float]:
-        return [float(value) for value in game.get_state_vector()]
+        return self._normalize_observation(game.get_state_vector(), update_stats=True)
+
+    def get_states(self, game: TrainingGame) -> dict[str, list[float]]:
+        return {
+            actor_id: self._normalize_observation(state_vector, update_stats=True)
+            for actor_id, state_vector in game.get_controlled_state_vectors().items()
+        }
 
     def remember(self, state, action, reward, next_state, done):
         return self.memory.add((state, action, reward, next_state, done))
@@ -362,6 +419,7 @@ def train() -> None:
     game = TrainingGame(
         level=curriculum.level,
         show_game=resolve_show_game(SHOW_GAME_OVERRIDE, default_value=False),
+        control_allies_with_nn=False,
     )
 
     if agent.loaded_model_path:
@@ -389,17 +447,26 @@ def train() -> None:
     while True:
         agent.update_epsilon()
         episode_reward = 0.0
+        episode_reward_breakdown = {name: 0.0 for name in REWARD_COMPONENTS}
         episode_losses = []
         done = False
 
         while not done:
-            state_old = agent.get_state(game)
-            action = agent.select_action(state_old)
-            reward, done, _ = game.play_step(action)
-            state_new = agent.get_state(game)
+            states_old = agent.get_states(game)
+            actions = {
+                actor_id: agent.select_action(state_old)
+                for actor_id, state_old in states_old.items()
+            }
+            reward, done, reward_breakdown = game.play_step(actions)
+            states_new = agent.get_states(game)
 
-            agent.remember(state_old, action, reward, state_new, done)
+            for actor_id, state_old in states_old.items():
+                state_new = states_new.get(actor_id, state_old)
+                action = actions[actor_id]
+                agent.remember(state_old, action, reward, state_new, done)
             episode_reward += reward
+            for component_name in episode_reward_breakdown:
+                episode_reward_breakdown[component_name] += float(reward_breakdown.get(component_name, 0.0))
             agent.total_env_steps += 1
 
             if agent.total_env_steps >= LEARN_START_STEPS and agent.total_env_steps % TRAIN_EVERY_STEPS == 0:
@@ -426,19 +493,28 @@ def train() -> None:
                 },
             )
 
-        log_key_values(
-            LOGGER.name,
-            {
-                "Episode": agent.episodes_played,
-                "Level": curriculum.level,
-                "Frames": game.frame_count,
-                "Reward": f"{episode_reward:.2f}",
-                f"Avg{REWARD_ROLLING_WINDOW}": f"{avg_reward:.2f}",
-                "Best": f"{best_average_reward:.2f}",
-                "Loss": f"{mean_loss:.4f}",
-                "Epsilon": f"{agent.epsilon:.3f}",
-            },
-        )
+        episode_segments = [
+            f"Episode={agent.episodes_played}",
+            f"Level={curriculum.level}",
+            f"Frames={game.frame_count}",
+            f"Reward={episode_reward:.2f}",
+            f"Avg{REWARD_ROLLING_WINDOW}={avg_reward:.2f}",
+            f"Best={best_average_reward:.2f}",
+            f"Loss={mean_loss:.4f}",
+            f"Epsilon={agent.epsilon:.3f}",
+        ]
+        if TRAINING_LOG_REWARD_BREAKDOWN:
+            episode_segments.append(
+                (
+                    f"R{episode_reward_breakdown['result']:.2f} "
+                    f"H{episode_reward_breakdown['hit']:.2f} "
+                    f"T{episode_reward_breakdown['time']:.2f} "
+                    f"A{episode_reward_breakdown['accuracy']:.2f} "
+                    f"S{episode_reward_breakdown['safety']:.2f} "
+                    f"O{episode_reward_breakdown['obstacle']:.2f}"
+                )
+            )
+        LOGGER.info("\t".join(episode_segments))
 
         rolling_ready = len(reward_window) == REWARD_ROLLING_WINDOW
         if curriculum.on_episode_end(avg_reward, rolling_ready):

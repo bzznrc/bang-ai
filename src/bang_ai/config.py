@@ -12,11 +12,21 @@ BOARD_CELL_INSET_PX = 4
 
 # Quick toggles
 SHOW_GAME_OVERRIDE: bool | None = None
+# None = use per-level `num_allies`; integer overrides ally count for all levels.
+NUM_ALLIES_OVERRIDE: int | None = None
+# Training keeps only P1 on-policy by default; set True to train-control P1 allies too.
+TRAIN_NN_CONTROLS_ALLIES = False
+# In play-ai mode, P1 and its allies are NN-driven by default.
+PLAY_NN_CONTROLS_ALLIES = True
+# Print per-episode reward component totals during training when enabled.
+TRAINING_LOG_REWARD_BREAKDOWN = True
+ENABLE_OBS_NORM = False
+OBS_NORM_EPS = 1e-6
 USE_GPU = env_flag("BANG_USE_GPU", False)
-LOAD_MODEL = "B"  # False, "B" (best), or "L" (last)
+LOAD_MODEL = False # False, "B" (best), or "L" (last)
 # Set to None to start from STARTING_LEVEL, or set an explicit level in [MIN_LEVEL, MAX_LEVEL].
-RESUME_LEVEL = 3
-PLAY_OPPONENT_LEVEL = 5
+RESUME_LEVEL = None
+PLAY_OPPONENT_LEVEL = 6
 
 # Runtime
 FPS = 60
@@ -60,29 +70,29 @@ COLOR_P4_DEEP_PURPLE = (123, 31, 162) # Deep Purple 700
 # Input/output spaces
 INPUT_FEATURE_NAMES = [
     "enemy_distance",
+    "enemy_rel_sin",
+    "enemy_rel_cos",
     "enemy_in_los",
-    "enemy_relative_angle_sin",
-    "enemy_relative_angle_cos",
     "delta_enemy_distance",
-    "delta_enemy_relative_angle",
-    "nearest_projectile_distance",
-    "nearest_projectile_relative_angle_sin",
-    "nearest_projectile_relative_angle_cos",
+    "delta_enemy_rel_angle",
+    "ally_present",
+    "ally_distance",
+    "ally_rel_sin",
+    "ally_rel_cos",
+    "projectile_present",
+    "projectile_distance",
+    "projectile_rel_sin",
+    "projectile_rel_cos",
     "delta_projectile_distance",
-    "in_projectile_trajectory",
-    "time_since_last_shot",
-    "time_since_last_seen_enemy",
-    "time_since_last_projectile_seen",
-    "up_blocked",
-    "down_blocked",
-    "left_blocked",
-    "right_blocked",
+    "delta_projectile_rel_angle",
     "player_angle_sin",
     "player_angle_cos",
-    "move_intent_x",
-    "move_intent_y",
-    "aim_intent",
-    "last_action_index",
+    "up_clearance_norm",
+    "down_clearance_norm",
+    "left_clearance_norm",
+    "right_clearance_norm",
+    "cooldown_norm",
+    "last_action_index_norm",
 ]
 ACTION_NAMES = [
     "move_up",
@@ -115,55 +125,107 @@ PLAYER_MOVE_SPEED = 5
 AIM_RATE_PER_STEP = 5
 PROJECTILE_SPEED = 10
 SHOOT_COOLDOWN_FRAMES = 30
-AIM_TOLERANCE_DEGREES = 10
-MAX_EPISODE_STEPS = 1200
+CLEARANCE_HORIZON_STEPS = 4
+MAX_EPISODE_STEPS = 600
 EVENT_TIMER_NORMALIZATION_FRAMES = MAX_EPISODE_STEPS
 PLAYER_SPAWN_X_RATIO = 1 / 8
 ENEMY_SPAWN_X_RATIO = 7 / 8
 
+# Reward shaping
+REWARD_WIN = 20.0
+PENALTY_LOSE = 10.0
+PENALTY_TIMEOUT = 10.0
+REWARD_HIT_ENEMY = 5.0
+PENALTY_TIME_STEP = -0.002
+PENALTY_FRIENDLY_FIRE = 5.0
+PENALTY_BAD_SHOT = 0.05
+PENALTY_BLOCKED_MOVE = 0.1
+RESULT_REWARD_BY_OUTCOME = {
+    "win": REWARD_WIN,
+    "lose": -PENALTY_LOSE,
+    "timeout": -PENALTY_TIMEOUT,
+}
+REWARD_COMPONENTS = {
+    "result": RESULT_REWARD_BY_OUTCOME,
+    "hit": REWARD_HIT_ENEMY,
+    "time": PENALTY_TIME_STEP,
+    "accuracy": PENALTY_BAD_SHOT,
+    "safety": PENALTY_FRIENDLY_FIRE,
+    "obstacle": PENALTY_BLOCKED_MOVE,
+}
+
 # Enemy behavior / curriculum
 MIN_LEVEL = 1
 STARTING_LEVEL = 1
-MAX_LEVEL = 5
+MAX_LEVEL = 6
 REWARD_ROLLING_WINDOW = 100
-CURRICULUM_REWARD_THRESHOLDS = [8.0, 8.0, 6.0, 6.0]
+CURRICULUM_REWARD_THRESHOLDS = [
+    0.1 * REWARD_WIN,
+    0.3 * REWARD_WIN,
+    0.5 * REWARD_WIN,
+    0.7 * REWARD_WIN,
+    0.9 * REWARD_WIN,
+]
 CURRICULUM_CONSECUTIVE_CHECKS = 5
 CURRICULUM_MIN_EPISODES_PER_LEVEL = 100
 LEVEL_SETTINGS = {
     1: {
         "num_players": 2,
+        "num_allies": 0,
         "num_obstacles": 4,
         "enemy_move_probability": 0.00,
-        "enemy_shot_error_choices": [-24, -12, 0, 12, 24],
         "enemy_shoot_probability": 0.04,
+        "enemy_shot_error_choices": [-24, -12, 0, 12, 24],
+        "aim_tolerance_degrees": 20,
     },
     2: {
         "num_players": 2,
+        "num_allies": 0,
         "num_obstacles": 6,
         "enemy_move_probability": 0.10,
+        "enemy_shoot_probability": 0.05,
         "enemy_shot_error_choices": [-20, -10, 0, 10, 20],
-        "enemy_shoot_probability": 0.06,
+        "aim_tolerance_degrees": 15,
     },
     3: {
+        # Ally introduction ONLY (no other changes)
         "num_players": 2,
-        "num_obstacles": 8,
-        "enemy_move_probability": 0.20,
-        "enemy_shot_error_choices": [-16, -8, 0, 8, 16],
-        "enemy_shoot_probability": 0.08,
+        "num_allies": 1,
+        "num_obstacles": 6,
+        "enemy_move_probability": 0.10,
+        "enemy_shoot_probability": 0.05,
+        "enemy_shot_error_choices": [-20, -10, 0, 10, 20],
+        "aim_tolerance_degrees": 15,
     },
     4: {
-        "num_players": 3,
+        # Increase environment + tighten aim
+        "num_players": 2,
+        "num_allies": 1,
         "num_obstacles": 10,
         "enemy_move_probability": 0.20,
-        "enemy_shot_error_choices": [-12, -6, 0, 6, 12],
-        "enemy_shoot_probability": 0.10,
+        "enemy_shoot_probability": 0.07,
+        "enemy_shot_error_choices": [-16, -8, 0, 8, 16],
+        "aim_tolerance_degrees": 10,
     },
     5: {
+        # Add second enemy only
+        "num_players": 3,
+        "num_allies": 1,
+        "num_obstacles": 10,
+        "enemy_move_probability": 0.20,
+        "enemy_shoot_probability": 0.08,
+        "enemy_shot_error_choices": [-16, -8, 0, 8, 16],
+        "aim_tolerance_degrees": 10,
+    },
+    6: {
+        # Add third enemy only
         "num_players": 4,
+        "num_allies": 1,
         "num_obstacles": 12,
         "enemy_move_probability": 0.20,
-        "enemy_shot_error_choices": [-8, -4, 0, 4, 8],
-        "enemy_shoot_probability": 0.12,
+        "enemy_shoot_probability": 0.10,
+        "enemy_shot_error_choices": [-12, -6, 0, 6, 12],
+        "aim_tolerance_degrees": 10,
     },
 }
 
@@ -197,7 +259,7 @@ CHECKPOINT_EVERY_STEPS = 100_000
 
 REPLAY_BUFFER_SIZE = 150_000
 BATCH_SIZE = 128
-LEARNING_RATE = 3e-4
+LEARNING_RATE = 2e-4
 WEIGHT_DECAY = 1e-5
 GAMMA = 0.98
 PER_ALPHA = 0.6
@@ -206,12 +268,12 @@ PER_BETA_FRAMES = TOTAL_TRAINING_STEPS
 PER_EPSILON = 1e-4
 
 EPSILON_START_SCRATCH = 1.0
-EPSILON_START_RESUME = 0.25
+EPSILON_START_RESUME = 0.50
 EPSILON_MIN = 0.05
-EPSILON_DECAY_EPISODES = 10_000
+EPSILON_DECAY_EPISODES = 2_500
 EPSILON_STAGNATION_BOOST = 0.05
-EPSILON_EXPLORATION_CAP = 0.25
-EPSILON_LEVEL_UP_RESET = 0.25
+EPSILON_EXPLORATION_CAP = 0.15
+EPSILON_LEVEL_UP_RESET = 0.15
 STAGNATION_WINDOW = REWARD_ROLLING_WINDOW
 PATIENCE = 25
 STAGNATION_IMPROVEMENT_THRESHOLD = 0.05
@@ -224,19 +286,3 @@ GRAD_CLIP_NORM = 10.0
 LEARN_START_STEPS = 5_000
 TRAIN_EVERY_STEPS = 4
 GRADIENT_STEPS_PER_UPDATE = 1
-
-# Reward shaping
-REWARD_WIN = 20.0
-PENALTY_LOSE = -10.0
-REWARD_HIT_ENEMY = 5.0
-PENALTY_TIME_STEP = -0.005
-PENALTY_BAD_SHOT = -0.1
-PENALTY_BLOCKED_MOVE = -0.1
-REWARD_COMPONENTS = {
-    "time_step": PENALTY_TIME_STEP,
-    "bad_shot": PENALTY_BAD_SHOT,
-    "blocked_move": PENALTY_BLOCKED_MOVE,
-    "hit_enemy": REWARD_HIT_ENEMY,
-    "win": REWARD_WIN,
-    "lose": PENALTY_LOSE,
-}
