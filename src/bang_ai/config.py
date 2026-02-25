@@ -14,8 +14,9 @@ BOARD_CELL_INSET_PX = 4
 SHOW_GAME_OVERRIDE: bool | None = None
 USE_GPU = env_flag("BANG_USE_GPU", False)
 LOAD_MODEL = "B"  # False, "B" (best), or "L" (last)
-# Set to None to start from STARTING_LEVEL, or set an explicit level in [MIN_LEVEL, MAX_LEVEL].
+# Set to None to start training from MIN_LEVEL, or set an explicit level in [MIN_LEVEL, MAX_LEVEL].
 RESUME_LEVEL = 3
+# Used by both `play_ai` and `play_user`.
 PLAY_OPPONENT_LEVEL = 5
 
 # Runtime
@@ -34,10 +35,7 @@ CELL_INSET = BOARD_CELL_INSET_PX
 CELL_INSET_DOUBLE = CELL_INSET * 2
 
 # Rendering
-FONT_FAMILY_DEFAULT: str | None = None
-FONT_PATH_ROBOTO_REGULAR = "fonts/Roboto-Regular.ttf"
-FONT_SIZE_BAR = 18
-UI_STATUS_SEPARATOR = "   /   "
+NN_CONTROL_MARKER_SIZE_PX = max(4, BOARD_CELL_SIZE_PX // 3)
 
 # Colors
 COLOR_AQUA = (102, 212, 200)
@@ -123,7 +121,6 @@ ENEMY_SPAWN_X_RATIO = 7 / 8
 
 # Enemy behavior / curriculum
 MIN_LEVEL = 1
-STARTING_LEVEL = 1
 MAX_LEVEL = 5
 REWARD_ROLLING_WINDOW = 100
 CURRICULUM_REWARD_THRESHOLDS = [8.0, 8.0, 6.0, 6.0]

@@ -48,7 +48,6 @@ from bang_ai.config import (
     SHOW_GAME_OVERRIDE,
     STAGNATION_IMPROVEMENT_THRESHOLD,
     STAGNATION_WINDOW,
-    STARTING_LEVEL,
     TARGET_SYNC_EVERY,
     TOTAL_TRAINING_STEPS,
     TRAIN_EVERY_STEPS,
@@ -63,13 +62,13 @@ LOGGER = logging.getLogger("bang_ai.train")
 
 def resolve_training_start_level(resume_level: int | None) -> int:
     if resume_level is None:
-        level = int(STARTING_LEVEL)
+        level = int(MIN_LEVEL)
     else:
         level = int(resume_level)
     if not (MIN_LEVEL <= level <= MAX_LEVEL):
         raise ValueError(
             f"Training start level must be in [{MIN_LEVEL}, {MAX_LEVEL}], got {level}. "
-            "Set RESUME_LEVEL accordingly (or None to use STARTING_LEVEL)."
+            "Set RESUME_LEVEL accordingly (or None to use MIN_LEVEL)."
         )
     return level
 

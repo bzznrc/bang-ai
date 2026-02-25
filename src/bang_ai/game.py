@@ -9,7 +9,6 @@ from typing import Callable, TypeVar
 
 import arcade
 
-from bang_ai.assets import resolve_font_path
 from bang_ai.config import (
     ACTION_AIM_LEFT,
     ACTION_AIM_RIGHT,
@@ -38,11 +37,9 @@ from bang_ai.config import (
     COLOR_SLATE_GRAY,
     COLOR_SOFT_WHITE,
     ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES,
+    ENEMY_ESCAPE_FOLLOW_FRAMES,
     ENEMY_SPAWN_X_RATIO,
     EVENT_TIMER_NORMALIZATION_FRAMES,
-    FONT_FAMILY_DEFAULT,
-    FONT_PATH_ROBOTO_REGULAR,
-    FONT_SIZE_BAR,
     FPS,
     INPUT_FEATURE_NAMES,
     LEVEL_SETTINGS,
@@ -51,6 +48,7 @@ from bang_ai.config import (
     MAX_OBSTACLE_SECTIONS,
     MIN_LEVEL,
     MIN_OBSTACLE_SECTIONS,
+    NN_CONTROL_MARKER_SIZE_PX,
     OBSTACLE_START_ATTEMPTS,
     PENALTY_BAD_SHOT,
     PENALTY_BLOCKED_MOVE,
@@ -69,21 +67,18 @@ from bang_ai.config import (
     SCREEN_WIDTH,
     SHOOT_COOLDOWN_FRAMES,
     SPAWN_Y_OFFSET,
-    STARTING_LEVEL,
+    PLAY_OPPONENT_LEVEL,
     TILE_SIZE,
     TRAINING_FPS,
-    UI_STATUS_SEPARATOR,
     WINDOW_TITLE,
 )
 from bang_ai.runtime import (
     ArcadeFrameClock,
     ArcadeWindowController,
-    TextCache,
     Vec2,
     collides_with_square_arena,
     heading_to_vector,
     length_squared,
-    load_font_once,
     normalize_angle_degrees,
     rect_from_center,
     rotate_degrees,
@@ -166,7 +161,9 @@ SCRIPTED_TARGET_POLICY = {
     "hold_min_frames": 18,
     "hold_max_frames": 60,
 }
-SCRIPTED_MOVE_FALLBACK_OFFSETS = (0.0, 90.0, -90.0, 180.0)
+CONTROL_MODE_HUMAN = "human"
+CONTROL_MODE_SCRIPTED = "scripted"
+CONTROL_MODE_NN = "nn"
 
 
 def _grow_connected_random_walk_shape(
@@ -218,18 +215,18 @@ def spawn_connected_random_walk_shapes(
     return shapes
 
 
-def _font_name() -> str:
-    font_path = resolve_font_path(FONT_PATH_ROBOTO_REGULAR)
-    load_font_once(font_path)
-    return FONT_FAMILY_DEFAULT or "Roboto"
-
-
 @dataclass
 class TargetState:
     target_id: str | None = None
     target_lost_frames: int = 0
     target_switch_cooldown: int = 0
     last_update_frame: int = -1
+
+
+@dataclass
+class ScriptedMoveState:
+    escape_frames_remaining: int = 0
+    escape_offset_degrees: float = float(ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES[0])
 
 
 class Actor:
@@ -289,7 +286,6 @@ class Renderer:
         self.enabled = bool(enabled)
         self.width = int(width)
         self.height = int(height)
-        self.font_name = _font_name()
 
         self.window_controller = ArcadeWindowController(
             self.width,
@@ -300,7 +296,6 @@ class Renderer:
             vsync=False,
         )
         self.window = self.window_controller.window
-        self.text_cache = TextCache(max_entries=256)
 
     def close(self) -> None:
         self.window_controller.close()
@@ -331,7 +326,12 @@ class Renderer:
                 player_id,
                 (COLOR_DEEP_TEAL, COLOR_AQUA),
             )
-            self._draw_actor(actor, fill_color, outline_color)
+            self._draw_actor(
+                actor,
+                fill_color,
+                outline_color,
+                draw_nn_marker=self.game.is_nn_controlled_player(player_id),
+            )
 
         for projectile in self.game.projectiles:
             owner_id = str(projectile.get("owner", ""))
@@ -348,36 +348,138 @@ class Renderer:
 
     def _draw_status_bar(self) -> None:
         arcade.draw_lbwh_rectangle_filled(0, 0, self.width, BB_HEIGHT, COLOR_NEAR_BLACK)
-
-        separator = UI_STATUS_SEPARATOR if UI_STATUS_SEPARATOR else " / "
-        segments: list[tuple[str, tuple[int, int, int]]] = []
-        for idx, player_id in enumerate(self.game.player_order):
-            if idx > 0:
-                segments.append((separator, COLOR_SOFT_WHITE))
-            score_color = self.game.player_status_colors.get(player_id, COLOR_SOFT_WHITE)
-            label = player_id.upper()
-            segments.append((f"{label} Score: {self.game.scores[player_id]}", score_color))
-        text_objects = []
-        total_width = 0.0
-        for text, color in segments:
-            text_obj = self.text_cache.get_text(
-                text=text,
-                color=color,
-                font_size=FONT_SIZE_BAR,
-                font_name=self.font_name,
-                anchor_x="left",
-                anchor_y="center",
-            )
-            text_objects.append(text_obj)
-            total_width += float(text_obj.content_width)
-
-        cursor_x = (self.width - total_width) / 2.0
         center_y = BB_HEIGHT / 2.0
-        for text_obj in text_objects:
-            text_obj.x = cursor_x
-            text_obj.y = center_y
-            text_obj.draw()
-            cursor_x += float(text_obj.content_width)
+        icon_size = self._status_icon_size()
+        indicator_diameter = icon_size * math.sqrt(2.0) * 0.8
+        indicator_radius = indicator_diameter / 2.0
+        indicator_border = max(1.0, round(CELL_INSET * 0.5))
+        indicator_center_x = self.width - 10.0 - indicator_radius
+        self._draw_time_indicator(
+            center_x=indicator_center_x,
+            center_y=center_y,
+            radius=indicator_radius,
+            border_width=indicator_border,
+        )
+
+        right_reserved = indicator_diameter + 24.0
+        winners_left = 8.0
+        winners_right = max(winners_left, self.width - right_reserved)
+        self._draw_winner_history(winners_left, winners_right, center_y)
+
+    def _remaining_time_ratio(self) -> float:
+        frames_left = max(0, MAX_EPISODE_STEPS - int(self.game.frame_count))
+        return frames_left / max(1, MAX_EPISODE_STEPS)
+
+    def _draw_time_indicator(self, center_x: float, center_y: float, radius: float, border_width: float) -> None:
+        circle_segments = 96
+        arcade.draw_circle_filled(center_x, center_y, radius, COLOR_SLATE_GRAY, num_segments=circle_segments)
+        inner_radius = max(1.0, radius - border_width)
+
+        remaining_ratio = self._remaining_time_ratio()
+        if remaining_ratio <= 0.0:
+            arcade.draw_circle_outline(
+                center_x,
+                center_y,
+                radius,
+                COLOR_FOG_GRAY,
+                border_width,
+                num_segments=circle_segments,
+            )
+            return
+        if remaining_ratio >= 1.0:
+            arcade.draw_circle_filled(
+                center_x,
+                center_y,
+                inner_radius,
+                COLOR_FOG_GRAY,
+                num_segments=circle_segments,
+            )
+            arcade.draw_circle_outline(
+                center_x,
+                center_y,
+                radius,
+                COLOR_FOG_GRAY,
+                border_width,
+                num_segments=circle_segments,
+            )
+            return
+
+        start_angle = 90.0
+        end_angle = start_angle + 360.0 * remaining_ratio
+        arcade.draw_arc_filled(
+            center_x=center_x,
+            center_y=center_y,
+            width=inner_radius * 2.0,
+            height=inner_radius * 2.0,
+            color=COLOR_FOG_GRAY,
+            start_angle=start_angle,
+            end_angle=end_angle,
+            num_segments=circle_segments,
+        )
+        arcade.draw_circle_outline(
+            center_x,
+            center_y,
+            radius,
+            COLOR_FOG_GRAY,
+            border_width,
+            num_segments=circle_segments,
+        )
+
+    @staticmethod
+    def _status_icon_size() -> float:
+        return max(12.0, min(float(BB_HEIGHT - 8), float(TILE_SIZE)))
+
+    def _draw_winner_history(self, left: float, right: float, center_y: float) -> None:
+        available_width = max(0.0, float(right) - float(left))
+        if available_width <= 0.0:
+            return
+
+        icon_size = self._status_icon_size()
+        icon_gap = 6.0
+        if icon_size <= 0.0:
+            return
+        max_icons = int((available_width + icon_gap) // (icon_size + icon_gap))
+        if max_icons <= 0:
+            return
+
+        winners = self.game.win_history[-max_icons:]
+        if not winners:
+            return
+
+        total_width = len(winners) * icon_size + max(0, len(winners) - 1) * icon_gap
+        start_x = float(left) + (available_width - total_width) / 2.0
+        for idx, player_id in enumerate(winners):
+            center_x = start_x + icon_size / 2.0 + idx * (icon_size + icon_gap)
+            if player_id is None:
+                continue
+            self._draw_player_icon(player_id, center_x, center_y, icon_size)
+
+    def _draw_player_icon(self, player_id: str, center_x: float, center_y: float, size: float) -> None:
+        style = PLAYER_STYLES.get(player_id, {})
+        fill_color = style.get("render_fill", COLOR_DEEP_TEAL)
+        outline_color = style.get("render_outline", COLOR_AQUA)
+        bottom = center_y - size / 2.0
+        left = center_x - size / 2.0
+        arcade.draw_lbwh_rectangle_filled(left, bottom, size, size, outline_color)
+
+        inset = max(1.0, round(CELL_INSET * (size / max(1.0, float(TILE_SIZE)))))
+        inner_size = max(1.0, size - 2.0 * inset)
+        arcade.draw_lbwh_rectangle_filled(
+            left + inset,
+            bottom + inset,
+            inner_size,
+            inner_size,
+            fill_color,
+        )
+        if self.game.is_nn_controlled_player(player_id):
+            marker_size = max(2.0, round(NN_CONTROL_MARKER_SIZE_PX * (size / max(1.0, float(TILE_SIZE)))))
+            arcade.draw_lbwh_rectangle_filled(
+                center_x - marker_size / 2.0,
+                center_y - marker_size / 2.0,
+                marker_size,
+                marker_size,
+                outline_color,
+            )
 
     def _draw_two_tone_tile(self, top_left_x: float, top_left_y: float, outer_color, inner_color) -> None:
         bottom = self.window_controller.top_left_to_bottom(top_left_y, TILE_SIZE)
@@ -392,13 +494,15 @@ class Renderer:
                 inner_color,
             )
 
-    def _draw_actor(self, actor: Actor, fill_color, outline_color) -> None:
+    def _draw_actor(self, actor: Actor, fill_color, outline_color, draw_nn_marker: bool = False) -> None:
         self._draw_two_tone_tile(
             top_left_x=actor.position.x - TILE_SIZE / 2,
             top_left_y=actor.position.y - TILE_SIZE / 2,
             outer_color=outline_color,
             inner_color=fill_color,
         )
+        if draw_nn_marker:
+            self._draw_nn_control_marker(actor, outline_color)
 
         facing = heading_to_vector(actor.angle)
         tick_end = actor.position + facing * (TILE_SIZE // 2)
@@ -409,6 +513,16 @@ class Renderer:
             self.window_controller.to_arcade_y(tick_end.y),
             COLOR_SOFT_WHITE,
             2,
+        )
+
+    def _draw_nn_control_marker(self, actor: Actor, color) -> None:
+        size = float(NN_CONTROL_MARKER_SIZE_PX)
+        arcade.draw_lbwh_rectangle_filled(
+            actor.position.x - size / 2.0,
+            self.window_controller.to_arcade_y(actor.position.y) - size / 2.0,
+            size,
+            size,
+            color,
         )
 
 
@@ -430,14 +544,16 @@ class BaseGame:
             player_id: PLAYER_STYLES[player_id]["render_outline"]
             for player_id in PLAYER_STYLES
         }
-        self.player_status_colors: dict[str, tuple[int, int, int]] = {}
         self.scores: dict[str, int] = {}
+        self.win_history: list[str | None] = []
+        self.player_control_modes: dict[str, str] = {}
         self._set_player_count(initial_player_count)
 
         self.players: list[Actor] = []
         self.players_by_id: dict[str, Actor] = {}
         self.scripted_players: list[Actor] = []
         self.target_states: dict[str, TargetState] = {}
+        self.scripted_move_states: dict[str, ScriptedMoveState] = {}
 
         self.renderer = Renderer(
             game=self,
@@ -461,6 +577,12 @@ class BaseGame:
 
     def draw_frame(self) -> None:
         self.renderer.draw_frame()
+
+    def _non_scripted_control_mode(self) -> str:
+        return CONTROL_MODE_HUMAN
+
+    def is_nn_controlled_player(self, player_id: str) -> bool:
+        return self.player_control_modes.get(player_id) == CONTROL_MODE_NN
 
     def configure_level(self) -> None:
         level = max(MIN_LEVEL, min(self.level, MAX_LEVEL))
@@ -487,8 +609,13 @@ class BaseGame:
             )
             for player_id in self.player_order
         }
-        self.player_status_colors = {
-            player_id: PLAYER_STYLES[player_id]["status_color"]
+        non_scripted_mode = self._non_scripted_control_mode()
+        self.player_control_modes = {
+            player_id: (
+                CONTROL_MODE_SCRIPTED
+                if PLAYER_STYLES[player_id]["scripted"]
+                else non_scripted_mode
+            )
             for player_id in self.player_order
         }
         self.scores = {
@@ -537,6 +664,13 @@ class BaseGame:
         self.target_states = {
             actor.team: TargetState()
             for actor in self.players
+        }
+        self.scripted_move_states = {
+            actor.team: ScriptedMoveState(
+                escape_frames_remaining=0,
+                escape_offset_degrees=float(ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES[0]),
+            )
+            for actor in self.scripted_players
         }
         self._place_obstacles()
 
@@ -616,32 +750,36 @@ class BaseGame:
             return False
         return self.player.move_intent_x != 0 or self.player.move_intent_y != 0
 
+    @staticmethod
+    def _set_actor_move_intent(actor: Actor, move_x: int, move_y: int) -> None:
+        actor.move_intent_x = max(-1, min(1, int(move_x)))
+        actor.move_intent_y = max(-1, min(1, int(move_y)))
+
+    @staticmethod
+    def _set_actor_aim_intent(actor: Actor, aim_intent: int) -> None:
+        actor.aim_intent = max(-1, min(1, int(aim_intent)))
+
     def _apply_action_to_player_intents(self, action_index: int) -> bool:
         if action_index == ACTION_MOVE_UP:
-            self.player.move_intent_x = 0
-            self.player.move_intent_y = 1
+            self._set_actor_move_intent(self.player, 0, 1)
             return False
         if action_index == ACTION_MOVE_DOWN:
-            self.player.move_intent_x = 0
-            self.player.move_intent_y = -1
+            self._set_actor_move_intent(self.player, 0, -1)
             return False
         if action_index == ACTION_MOVE_LEFT:
-            self.player.move_intent_x = -1
-            self.player.move_intent_y = 0
+            self._set_actor_move_intent(self.player, -1, 0)
             return False
         if action_index == ACTION_MOVE_RIGHT:
-            self.player.move_intent_x = 1
-            self.player.move_intent_y = 0
+            self._set_actor_move_intent(self.player, 1, 0)
             return False
         if action_index == ACTION_STOP_MOVE:
-            self.player.move_intent_x = 0
-            self.player.move_intent_y = 0
+            self._set_actor_move_intent(self.player, 0, 0)
             return False
         if action_index == ACTION_AIM_LEFT:
-            self.player.aim_intent = -1
+            self._set_actor_aim_intent(self.player, -1)
             return False
         if action_index == ACTION_AIM_RIGHT:
-            self.player.aim_intent = 1
+            self._set_actor_aim_intent(self.player, 1)
             return False
         if action_index == ACTION_SHOOT:
             projectile = self.player.shoot()
@@ -795,17 +933,6 @@ class BaseGame:
         movement = self._move_vector_for_angle(angle_degrees)
         self._update_actor_position(actor, movement)
         return length_squared(actor.position - previous_position) > 0
-
-    def _attempt_actor_move_with_fallback(self, actor: Actor, desired_angle: float) -> bool:
-        candidate_offsets = SCRIPTED_MOVE_FALLBACK_OFFSETS + ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES
-        for offset in candidate_offsets:
-            candidate_angle = (desired_angle + offset) % 360
-            candidate_move = self._move_vector_for_angle(candidate_angle)
-            if self._would_collide(actor, candidate_move):
-                continue
-            self._update_actor_position(actor, candidate_move)
-            return True
-        return False
 
     def _alive_opponents(self, actor: Actor) -> list[Actor]:
         return [other for other in self.players if other is not actor and other.is_alive]
@@ -961,6 +1088,71 @@ class BaseGame:
             return (angle_to_target + random.choice((90.0, -90.0))) % 360.0
         return angle_to_target
 
+    def _scripted_move_state(self, actor: Actor) -> ScriptedMoveState:
+        return self.scripted_move_states.setdefault(
+            actor.team,
+            ScriptedMoveState(
+                escape_frames_remaining=0,
+                escape_offset_degrees=float(ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES[0]),
+            ),
+        )
+
+    def _available_escape_offsets(self, actor: Actor, angle_to_target: float) -> list[float]:
+        free_offsets: list[float] = []
+        for offset in ENEMY_ESCAPE_ANGLE_OFFSETS_DEGREES:
+            escape_angle = (angle_to_target + float(offset)) % 360.0
+            candidate_move = self._move_vector_for_angle(escape_angle)
+            if not self._would_collide(actor, candidate_move):
+                free_offsets.append(float(offset))
+        return free_offsets
+
+    def _pick_random_escape_offset(self, actor: Actor, angle_to_target: float) -> float | None:
+        free_offsets = self._available_escape_offsets(actor, angle_to_target)
+        if not free_offsets:
+            return None
+        return random.choice(free_offsets)
+
+    def _attempt_scripted_escape_move(
+        self,
+        actor: Actor,
+        angle_to_target: float,
+        move_state: ScriptedMoveState,
+    ) -> bool:
+        escape_angle = (angle_to_target + move_state.escape_offset_degrees) % 360.0
+        if self._move_actor_in_direction(actor, escape_angle):
+            return True
+
+        new_offset = self._pick_random_escape_offset(actor, angle_to_target)
+        if new_offset is None:
+            return False
+        move_state.escape_offset_degrees = new_offset
+        alternate_angle = (angle_to_target + move_state.escape_offset_degrees) % 360.0
+        return self._move_actor_in_direction(actor, alternate_angle)
+
+    def _step_scripted_movement(self, actor: Actor, target: Actor, angle_to_target: float) -> None:
+        move_state = self._scripted_move_state(actor)
+        if move_state.escape_frames_remaining <= 0 and random.random() >= self.enemy_move_probability:
+            return
+        moved = False
+
+        if move_state.escape_frames_remaining > 0:
+            moved = self._attempt_scripted_escape_move(actor, angle_to_target, move_state)
+            move_state.escape_frames_remaining -= 1
+        else:
+            move_angle = self._scripted_desired_move_angle(actor, target, angle_to_target)
+            moved = self._move_actor_in_direction(actor, move_angle)
+            if not moved:
+                escape_offset = self._pick_random_escape_offset(actor, angle_to_target)
+                if escape_offset is not None:
+                    move_state.escape_offset_degrees = escape_offset
+                    move_state.escape_frames_remaining = ENEMY_ESCAPE_FOLLOW_FRAMES
+                    moved = self._attempt_scripted_escape_move(actor, angle_to_target, move_state)
+                    if moved:
+                        move_state.escape_frames_remaining -= 1
+
+        if not moved:
+            move_state.escape_frames_remaining = 0
+
     def _step_scripted_actor(self, actor: Actor) -> None:
         if not actor.is_alive:
             return
@@ -983,9 +1175,7 @@ class BaseGame:
         aim_angle = (angle_to_target + aim_error) % 360
         actor.angle = aim_angle
 
-        if random.random() < self.enemy_move_probability:
-            move_angle = self._scripted_desired_move_angle(actor, target, angle_to_target)
-            self._attempt_actor_move_with_fallback(actor, move_angle)
+        self._step_scripted_movement(actor, target, angle_to_target)
 
         shoot_probability = self.enemy_shoot_probability
         if self._has_clear_path_between(actor, target):
@@ -1191,14 +1381,18 @@ class BaseGame:
         if player_id not in self.scores:
             return
         self.scores[player_id] += 1
+        self.win_history.append(player_id)
         setattr(self, f"{player_id}_score", self.scores[player_id])
+
+    def _record_round_draw(self) -> None:
+        self.win_history.append(None)
 
 
 class HumanGame(BaseGame):
     """Human-play mode."""
 
     def __init__(self, show_game: bool = True):
-        level = max(MIN_LEVEL, min(STARTING_LEVEL, MAX_LEVEL))
+        level = max(MIN_LEVEL, min(PLAY_OPPONENT_LEVEL, MAX_LEVEL))
         super().__init__(level=level, show_game=show_game)
 
     def play_step(self) -> None:
@@ -1213,24 +1407,19 @@ class HumanGame(BaseGame):
             move_right = self.window_controller.is_key_down(arcade.key.D)
 
             if move_up and not move_down:
-                self.player.move_intent_x = 0
-                self.player.move_intent_y = 1
+                self._set_actor_move_intent(self.player, 0, 1)
                 movement_action = ACTION_MOVE_UP
             elif move_down and not move_up:
-                self.player.move_intent_x = 0
-                self.player.move_intent_y = -1
+                self._set_actor_move_intent(self.player, 0, -1)
                 movement_action = ACTION_MOVE_DOWN
             elif move_left and not move_right:
-                self.player.move_intent_x = -1
-                self.player.move_intent_y = 0
+                self._set_actor_move_intent(self.player, -1, 0)
                 movement_action = ACTION_MOVE_LEFT
             elif move_right and not move_left:
-                self.player.move_intent_x = 1
-                self.player.move_intent_y = 0
+                self._set_actor_move_intent(self.player, 1, 0)
                 movement_action = ACTION_MOVE_RIGHT
             else:
-                self.player.move_intent_x = 0
-                self.player.move_intent_y = 0
+                self._set_actor_move_intent(self.player, 0, 0)
                 movement_action = ACTION_STOP_MOVE
 
             # Prefer mouse/touchpad aiming in human mode.
@@ -1241,7 +1430,7 @@ class HumanGame(BaseGame):
                 to_cursor = Vec2(mouse_x, mouse_y) - self.player.position
                 if length_squared(to_cursor) > 0:
                     self.player.angle = math.degrees(math.atan2(to_cursor.y, to_cursor.x)) % 360
-                self.player.aim_intent = 0
+                self._set_actor_aim_intent(self.player, 0)
                 self.last_action_index = movement_action
             else:
                 aim_left = self.window_controller.is_key_down(arcade.key.Q) or self.window_controller.is_key_down(
@@ -1251,10 +1440,10 @@ class HumanGame(BaseGame):
                     arcade.key.RIGHT
                 )
                 if aim_left and not aim_right:
-                    self.player.aim_intent = -1
+                    self._set_actor_aim_intent(self.player, -1)
                     self.last_action_index = ACTION_AIM_LEFT
                 elif aim_right and not aim_left:
-                    self.player.aim_intent = 1
+                    self._set_actor_aim_intent(self.player, 1)
                     self.last_action_index = ACTION_AIM_RIGHT
                 else:
                     self.last_action_index = movement_action
@@ -1266,9 +1455,8 @@ class HumanGame(BaseGame):
             if shoot_pressed:
                 self.last_action_index = ACTION_SHOOT
         else:
-            self.player.move_intent_x = 0
-            self.player.move_intent_y = 0
-            self.player.aim_intent = 0
+            self._set_actor_move_intent(self.player, 0, 0)
+            self._set_actor_aim_intent(self.player, 0)
 
         self.apply_player_action(action)
         self._step_scripted_players()
@@ -1279,6 +1467,9 @@ class HumanGame(BaseGame):
         if winner is not None:
             self._increment_score(winner.team)
             self.reset()
+        elif self.frame_count >= MAX_EPISODE_STEPS:
+            self._record_round_draw()
+            self.reset()
 
         self.draw_frame()
         self.frame_clock.tick(FPS if self.show_game else 0)
@@ -1286,6 +1477,9 @@ class HumanGame(BaseGame):
 
 class TrainingGame(BaseGame):
     """Environment used by DQN training."""
+
+    def _non_scripted_control_mode(self) -> str:
+        return CONTROL_MODE_NN
 
     def __init__(self, level: int = 1, show_game: bool = True, end_on_player_death: bool = True):
         self.end_on_player_death = bool(end_on_player_death)
@@ -1340,6 +1534,7 @@ class TrainingGame(BaseGame):
             self.player_loss_recorded = True
 
         done = False
+        timed_out = False
         if self.end_on_player_death and not self.player.is_alive:
             done = True
         elif self.is_player_last_alive():
@@ -1350,6 +1545,7 @@ class TrainingGame(BaseGame):
             done = True
         elif self.frame_count >= MAX_EPISODE_STEPS:
             done = True
+            timed_out = True
 
         if done:
             if self.end_on_player_death and not self.player.is_alive:
@@ -1364,6 +1560,8 @@ class TrainingGame(BaseGame):
                 winner = self._last_alive_player()
                 if winner is not None:
                     self._increment_score(winner.team)
+            if timed_out and self._last_alive_player() is None:
+                self._record_round_draw()
 
         self.draw_frame()
         self.frame_clock.tick(FPS if self.show_game else TRAINING_FPS)
